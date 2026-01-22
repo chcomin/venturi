@@ -1,7 +1,7 @@
 seed: 0
 
 logging:
-  experiments_path: "experiments"
+  experiments_path: "_experiments"
   experiment_name: "no_name_experiment"
   run_name: "no_name_run"
   validate_every: 1

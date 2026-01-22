@@ -1,6 +1,8 @@
-"""Some customizations for the lightning library"""
+"""Some customizations for the lightning library."""
 
 import contextlib
+import logging
+import warnings
 import os
 from typing import override
 
@@ -13,6 +15,38 @@ from lightning.pytorch.loggers.wandb import WandbLogger
 with contextlib.suppress(ImportError):
     import wandb
 
+class LightningLogFilter(logging.Filter):
+    """Filters annoying Lightning messages."""
+    
+    def filter(self, record):
+        msg = str(record.msg)
+
+        forbidden_phrases = [
+            "Seed set to",
+            "LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES",
+        ]
+        
+        # Verify if any forbidden phrase is in the message
+        return not any(phrase in msg for phrase in forbidden_phrases)
+
+def silence_lightning():
+    """Silence annoying Lightning messages."""
+
+    warnings.filterwarnings("ignore", ".*exists and is not empty.*")
+    warnings.filterwarnings("ignore", ".*The number of training batches.*")
+
+    lightning_filter = LightningLogFilter()
+    
+    # Apply the filter to the root of Lightning (for well-behaved cases)
+    logging.getLogger("lightning.pytorch").addFilter(lightning_filter)
+    logging.getLogger("lightning.fabric").addFilter(lightning_filter)
+    
+    # Iterate over all active loggers
+    for logger_name in logging.Logger.manager.loggerDict:
+        if "lightning" in logger_name:
+            logger = logging.getLogger(logger_name)
+            logger.addFilter(lightning_filter)
+            logger.setLevel(logging.ERROR)
 
 class CustomExperimentWriter(ExperimentWriter):
     """Lightning ExperimentWriter with different filename and no existing directory checks."""

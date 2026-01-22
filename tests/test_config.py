@@ -1,13 +1,13 @@
-import pytest
-import yaml
-import torch.nn as nn
-from pathlib import Path
 from functools import partial
+from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from torchtrainer.engine.config import Config, instantiate, get_target
+import pytest
+import torch.nn as nn
+import yaml
 
-# --- Mocks and Dummy Classes for Testing ---
+from torchtrainer.engine.config import Config, get_target, instantiate
+
 
 class DummyModel:
     """A simple class to test instantiation."""

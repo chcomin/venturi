@@ -1,14 +1,8 @@
-import argparse
-import ast
-import logging
-import random
 import shutil
 import sys
-import warnings
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 import pytorch_lightning as pl
 import torch
@@ -23,6 +17,10 @@ from pytorch_lightning.profilers import PyTorchProfiler
 from torch.optim import SGD, Adam, AdamW
 from torch.utils.data import DataLoader, TensorDataset, random_split
 
+from torchtrainer.engine.lightning_util import silence_lightning
+from torchtrainer.engine.train_util import seed_worker
+from torchtrainer.engine.config import Config
+
 try:
     import wandb
 except ImportError:
@@ -31,186 +29,6 @@ else:
     from pytorch_lightning.loggers import WandbLogger
     _has_wandb = True
 
-class LightningLogFilter(logging.Filter):
-    """Filtra mensagens específicas e teimosas do PyTorch Lightning."""
-    
-    def filter(self, record):
-        msg = str(record.msg)
-
-        forbidden_phrases = [
-            "Seed set to",
-            "LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES",
-        ]
-        
-        # Verify if any forbidden phrase is in the message
-        return not any(phrase in msg for phrase in forbidden_phrases)
-
-def silence_lightning():
-
-    warnings.filterwarnings("ignore", ".*exists and is not empty.*")
-    warnings.filterwarnings("ignore", ".*The number of training batches.*")
-
-    # Instancia o filtro
-    lightning_filter = LightningLogFilter()
-    
-    # Aplica o filtro na raiz do Lightning (para casos bem comportados)
-    logging.getLogger("lightning.pytorch").addFilter(lightning_filter)
-    logging.getLogger("lightning.fabric").addFilter(lightning_filter)
-    
-    # A "Vacinação em Massa": Itera sobre todos os loggers ativos
-    # Isso pega os loggers rebeldes como 'lightning.fabric.utilities.seed'
-    for logger_name in logging.Logger.manager.loggerDict:
-        if "lightning" in logger_name:
-            logger = logging.getLogger(logger_name)
-            logger.addFilter(lightning_filter)
-            logger.setLevel(logging.ERROR)
-
-def seed_worker(worker_id):
-    """Ensures dataloader workers are seeded correctly."""
-    worker_seed = torch.initial_seed() % 2**32
-    np.random.seed(worker_seed)
-    random.seed(worker_seed)
-
-# ==========================================
-# 1. Custom Argparse Actions
-# ==========================================
-class ParseKwargs(argparse.Action):
-    def __call__(self, parser, namespace, values, option_string=None):
-        setattr(namespace, self.dest, dict())
-        for value in values:
-            key, value = value.split("=")
-            # Attempt to convert to basic types
-            try:
-                value = ast.literal_eval(value)
-            except (ValueError, SyntaxError):
-                pass # Keep as string
-            getattr(namespace, self.dest)[key] = value
-
-class ParseText(argparse.Action):
-    def __call__(self, parser, namespace, values, option_string=None):
-        setattr(namespace, self.dest, " ".join(values))
-
-# ==========================================
-# 2. Argument Parser (From your snippet)
-# ==========================================
-def get_parser() -> argparse.ArgumentParser:
-    """Get the argument parser for the script."""
-    config_parser = argparse.ArgumentParser(description="Training Config", add_help=False)
-    config_parser.add_argument("--config", default="", metavar="FILE", 
-        help="Path to YAML config file specifying default arguments")
-
-    parser = argparse.ArgumentParser(
-        description="Below, N represents integer values and V represents float values")
-
-    # Logging parameters
-    group = parser.add_argument_group("Logging parameters")
-    group.add_argument("-p", "--experiments_path", default="experiments", metavar="PATH", 
-                       help="Path to save experiments data")
-    group.add_argument("-e", "--experiment_name", default="default_exp", 
-                       metavar="NAME", help="Name of the experiment")
-    group.add_argument("-n", "--run_name", default="default_run", metavar="NAME", 
-                       help="Name of the run for a given experiment")
-    group.add_argument("--validate_every", type=int, default=1, metavar="N", 
-                       help="Run a validation step every N epochs")
-    group.add_argument("--save_val_imgs", action="store_true", 
-                       help="Save some validation images when validating")
-    group.add_argument("--val_img_indices", nargs="*", type=int, default=(0,), 
-                       metavar="N N N", help="Indices of the validation images to save")
-    group.add_argument("--suppress_checkpoint", action="store_true",
-               help="Suppress model checkpoint saving at the end of each epoch.")
-    group.add_argument("--copy_model_every", type=int, default=0, metavar="N", 
-                       help="Save a copy of the model every N epochs.")
-    group.add_argument("--suppress_best_checkpoint", action="store_true", 
-                       help="Avoid saving the best checkpoint of the model.")
-    group.add_argument("--log_wandb", action="store_true", 
-                       help="If wandb should also be used for logging.")
-    group.add_argument("--wandb_project", default="uncategorized", 
-                       help="Name of the wandb project to log the data.")
-    group.add_argument("--wandb_group", default="", nargs="*", action=ParseText, 
-                       help="Name of the wandb group to log the data.")
-    parser.add_argument("--log_images_wandb", action="store_true", 
-                        help="If wandb should be used for logging validation images.")
-    group.add_argument("--disable_tqdm", action="store_true", 
-                       help="Disable tqdm progressbar.")
-    parser.add_argument("--meta", default="", nargs="*", action=ParseText, 
-                        help="Additional metadata.")
-
-    # Dataset parameters
-    group = parser.add_argument_group("Dataset parameters")
-    group.add_argument("--dataset_path", default="./data", help="Path to the dataset root directory")        
-    group.add_argument("--dataset_class", default="MyDataset", help="Name of the dataset class to use")
-    group.add_argument("--split_strategy", default="0.2",  metavar="STRING",
-                       help="How to split the data into train/val.")
-    group.add_argument("--augmentation_strategy", default=None, metavar="STRING", 
-                       help="Data augmentation procedure.")
-    group.add_argument("--resize_size", default=(384,384), nargs=2, type=int, 
-                       metavar=("N", "N"), help="Size to resize the images.")
-    group.add_argument("--dataset_params", nargs="*", default={}, action=ParseKwargs, 
-        metavar="par1=v1", help="Additional parameters for dataset.")
-    group.add_argument("--loss_function", default="cross_entropy", metavar="LOSS", 
-                       help="Loss function to use during training")
-    group.add_argument("--ignore_class_weights", action="store_true", 
-                       help="If provided, ignore class weights for the loss function")
-
-    # Model parameters
-    group = parser.add_argument_group("Model parameters")
-    group.add_argument("--model_class", default="MyModel", help="Name of the model to train")
-    group.add_argument("--weights_strategy", default=None, metavar="STRING", 
-                       help="Method to load weights")
-    group.add_argument("--model_params", nargs="*", default={}, action=ParseKwargs, 
-                       metavar="par1=v1", help="Additional parameters for model.")
-
-    # Training parameters
-    group = parser.add_argument_group("Training parameters")
-    group.add_argument("--num_epochs", type=int, default=2, metavar="N", 
-                       help="Number of training epochs")
-    group.add_argument("--validation_metric", default="val_loss", nargs="*", 
-                       metavar="METRIC", action=ParseText, 
-                       help="Which metric to use for early stopping")
-    group.add_argument("--patience", type=int, default=None, metavar="N", 
-                       help="Early stopping patience.")
-    group.add_argument("--maximize_validation_metric", action="store_true", 
-                       help="If set, early stopping will maximize.")
-    group.add_argument("--lr", type=float, default=0.01, metavar="V", 
-                       help="Initial learning rate")
-    group.add_argument("--lr_decay", type=float, default=1., metavar="V", 
-                       help="Learning rate decay")
-    group.add_argument("--bs_train", type=int, default=32, metavar="N", 
-                       help="Batch size used durig training")
-    group.add_argument("--bs_valid", type=int, default=8, metavar="N", 
-                       help="Batch size used durig validation")
-    group.add_argument("--weight_decay", type=float, default=1e-4, metavar="V", 
-                       help="Weight decay for the optimizer")
-    group.add_argument("--optimizer", default="sgd", help="Optimizer to use")
-    group.add_argument("--momentum", type=float, default=0.9, metavar="V", 
-                       help="Momentum/beta1 of the optimizer")
-    group.add_argument("--seed", type=int, default=0, metavar="N", 
-                       help="Seed for the random number generator")
-
-    # Device and efficiency parameters
-    group = parser.add_argument_group("Device and efficiency parameters")
-    group.add_argument("--num_workers", type=int, default=5, metavar="N", 
-                       help="Number of workers for the DataLoader")
-    group.add_argument("--pin_memory", action="store_false", 
-                       help="If DataLoader should pin memory.")
-    group.add_argument("--use_amp", action="store_true", 
-                       help="If automatic mixed precision should be used")
-    group.add_argument("--deterministic", action="store_true", 
-                       help="If deterministic algorithms should be used")
-    group.add_argument("--benchmark", action="store_true", 
-                       help="If cuda benchmark should be used")
-    group.add_argument("--profile", action="store_true", 
-                       help="If set, enable the profile mode.")
-    group.add_argument("--profile_batches", type=int, default=3, metavar="N", 
-                       help="Number of batches to profile.")
-    group.add_argument("--profile_verbosity", type=int, default=0, metavar="N", 
-                       help="Profile verbosity.")
-
-    return parser, config_parser
-
-# ==========================================
-# 3. Utilities (Factories)
-# ==========================================
 def get_loss(name, ignore_weights=False):
     # This is a placeholder. You would typically return specific torch.nn modules here.
     if name == "cross_entropy":
@@ -232,90 +50,6 @@ def get_optimizer(model_params, args):
     else:
         raise ValueError(f"Unknown optimizer: {args_t.optimizer}")
 
-# ==========================================
-# 4. Lightning System
-# ==========================================
-class TrainingModule(pl.LightningModule):
-    def __init__(self, args):
-        super().__init__()
-        self.save_hyperparameters(args)
-        args = Config(args)
-        self.args = args
-        args_d  = args.dataset
-        num_classes = args_d.num_classes
-
-        # Placeholder for demo purposes:
-        self.model = nn.Sequential(
-            nn.Conv2d(3, 16, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(16, num_classes, kernel_size=1)
-        )
-        
-        # 2. Loss
-        self.loss_fn = get_loss(args_d.loss_function, args_d.ignore_class_weights)
-
-        metrics = torchmetrics.MetricCollection({
-            "Accuracy": torchmetrics.Accuracy(task="multiclass", num_classes=num_classes, ignore_index=-100),
-            "IoU": torchmetrics.JaccardIndex(task="multiclass", num_classes=num_classes, ignore_index=-100),
-            #"Dice": torchmetrics.segmentation.DiceScore(num_classes=num_classes),
-            "Precision": torchmetrics.Precision(task="multiclass", num_classes=num_classes, ignore_index=-100),
-            "Recall": torchmetrics.Recall(task="multiclass", num_classes=num_classes, ignore_index=-100),
-        })
-
-        self.train_metrics = metrics.clone(prefix="train_")
-        self.val_metrics = metrics.clone(prefix="val_")
-
-    def forward(self, x):
-        return self.model(x)
-
-    def training_step(self, batch, batch_idx):
-        x, y = batch
-        logits = self(x)
-        loss = self.loss_fn(logits, y)
-        
-        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
-        output = self.train_metrics(logits, y)
-        self.log_dict(output, on_step=False, on_epoch=True, prog_bar=False)
-
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        x, y = batch
-        logits = self(x)
-        loss = self.loss_fn(logits, y)
-        
-        self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
-
-        output = self.val_metrics(logits, y)
-        self.log_dict(output, on_step=False, on_epoch=True, prog_bar=False)
-        
-        # Handle Image Saving logic if enabled
-        if self.args.logging.save_val_imgs and batch_idx == 0:
-            pass
-            #self._log_images(x, y, logits)
-            
-        return loss
-
-    def configure_optimizers(self):
-        optimizer = get_optimizer(self.parameters(), self.args)
-        
-        if self.args.training.lr_decay > 0:
-            scheduler = torch.optim.lr_scheduler.PolynomialLR(
-                optimizer, 
-                total_iters=self.trainer.estimated_stepping_batches, 
-                power=self.args.training.lr_decay
-            )
-            lr_scheduler_config = {
-                "scheduler": scheduler,
-                "interval": "step",
-            }
-            return [optimizer], [lr_scheduler_config]
-        
-        return optimizer
-    
-# ==========================================
-# 5. Data Module
-# ==========================================
 class GenericDataModule(pl.LightningDataModule):
     def __init__(self, args):
         super().__init__()
@@ -369,6 +103,79 @@ class GenericDataModule(pl.LightningDataModule):
             worker_init_fn=seed_worker,
             pin_memory=self.args.performance.pin_memory,
         )
+
+
+class TrainingModule(pl.LightningModule):
+    def __init__(self, args):
+        super().__init__()
+        self.save_hyperparameters(args)
+        args = Config(args)
+        self.args = args
+        args_d  = args.dataset
+        num_classes = args_d.num_classes
+
+        # Placeholder for demo purposes:
+        self.model = nn.Sequential(
+            nn.Conv2d(3, 16, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(16, num_classes, kernel_size=1)
+        )
+        
+        self.loss_fn = get_loss(args_d.loss_function, args_d.ignore_class_weights)
+
+        metrics = torchmetrics.MetricCollection({
+            "Accuracy": torchmetrics.Accuracy(task="multiclass", num_classes=num_classes, ignore_index=-100),
+            "IoU": torchmetrics.JaccardIndex(task="multiclass", num_classes=num_classes, ignore_index=-100),
+            #"Dice": torchmetrics.segmentation.DiceScore(num_classes=num_classes),
+            "Precision": torchmetrics.Precision(task="multiclass", num_classes=num_classes, ignore_index=-100),
+            "Recall": torchmetrics.Recall(task="multiclass", num_classes=num_classes, ignore_index=-100),
+        })
+
+        self.train_metrics = metrics.clone(prefix="train_")
+        self.val_metrics = metrics.clone(prefix="val_")
+
+    def forward(self, x):
+        return self.model(x)
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        logits = self(x)
+        loss = self.loss_fn(logits, y)
+        
+        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+        output = self.train_metrics(logits, y)
+        self.log_dict(output, on_step=False, on_epoch=True, prog_bar=False)
+
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        logits = self(x)
+        loss = self.loss_fn(logits, y)
+        
+        self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
+
+        output = self.val_metrics(logits, y)
+        self.log_dict(output, on_step=False, on_epoch=True, prog_bar=False)
+            
+        return loss
+
+    def configure_optimizers(self):
+        optimizer = get_optimizer(self.parameters(), self.args)
+        
+        if self.args.training.lr_decay > 0:
+            scheduler = torch.optim.lr_scheduler.PolynomialLR(
+                optimizer, 
+                total_iters=self.trainer.estimated_stepping_batches, 
+                power=self.args.training.lr_decay
+            )
+            lr_scheduler_config = {
+                "scheduler": scheduler,
+                "interval": "step",
+            }
+            return [optimizer], [lr_scheduler_config]
+        
+        return optimizer
 
 class PlottingCallback(Callback):
     """Reads the CSV log generated by Lightning and creates a static plot 
@@ -663,13 +470,13 @@ class ExperimentRunner:
         args_t = self.args.training
         callbacks = extra_callbacks or []
         
-        # 1. Custom Visualization & Plotting
+        # Custom Visualization & Plotting
         if args_l.save_val_imgs:
             callbacks.append(ImageSaveCallback(
                 self.run_path, args_l.val_img_indices, log_wandb=args_l.log_images_wandb))
         callbacks.append(PlottingCallback())
 
-        # 2. Early Stopping
+        # Early Stopping
         if args_t.patience:
             mode = "max" if args_t.maximize_validation_metric else "min"
             callbacks.append(EarlyStopping(
@@ -678,7 +485,7 @@ class ExperimentRunner:
                 mode=mode
             ))
 
-        # 3. Checkpointing
+        # Checkpointing
         if not args_l.suppress_checkpoint:
             mode = "max" if args_t.maximize_validation_metric else "min"
             # Best Model
@@ -709,7 +516,7 @@ class ExperimentRunner:
     def run(self, interactive=True, extra_callbacks=None, recreate_dataset=False):
         """Main entry point.
         """
-        # 1. Setup Phase
+        # Setup Phase
         self.setup_dirs(interactive=interactive)
         pl.seed_everything(self.args.seed)
 
@@ -718,7 +525,7 @@ class ExperimentRunner:
         
         self.model = self.get_model()
         
-        # 2. Configure Trainer components
+        # Configure Trainer components
         loggers = self.get_loggers()
         callbacks = self.get_callbacks(extra_callbacks)        
 
@@ -734,7 +541,7 @@ class ExperimentRunner:
                 wait=1, warmup=1, active=self.args.performance.profile_batches)
             )
         
-        # 3. Initialize Trainer
+        # Initialize Trainer
         self.trainer = pl.Trainer(
             default_root_dir=str(self.run_path),
             logger=loggers,
@@ -743,7 +550,7 @@ class ExperimentRunner:
             check_val_every_n_epoch=self.args.logging.validate_every,
             accelerator="auto",
             devices=1, 
-            enable_progress_bar=not self.args.logging.disable_tqdm, # Disable tqdm for Optuna (non-interactive)
+            enable_progress_bar=not self.args.logging.disable_tqdm, 
             enable_checkpointing=True,
             precision="16-mixed" if self.args.performance.use_amp else 32,
             deterministic=self.args.performance.deterministic,
@@ -752,19 +559,10 @@ class ExperimentRunner:
             enable_model_summary=interactive
         )
 
-        # 4. Fit
+        # Fit
         self.trainer.fit(self.model, datamodule=self.data_module)
         
-        # 5. Return metric (Useful for Optuna)
+        # Return metric (Useful for Optuna)
         return self.trainer.callback_metrics.get(
             self.args.training.validation_metric, torch.tensor(0.0)).item()
 
-if __name__ == "__main__":
-
-    from config.config_util import Config
-
-    args = Config("config/default.yaml")
-
-    # 2. Run Experiment
-    runner = ExperimentRunner(args)
-    final_metric = runner.run(interactive=False)
