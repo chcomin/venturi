@@ -1,0 +1,59 @@
+seed: 0
+
+logging:
+  experiments_path: "experiments"
+  experiment_name: "no_name_experiment"
+  run_name: "no_name_run"
+  validate_every: 1
+  save_val_imgs: false
+  val_img_indices: 
+    - 0
+  suppress_checkpoint: false
+  copy_model_every: 0
+  suppress_best_checkpoint: false
+  log_wandb: false
+  wandb_project: "uncategorized"
+  wandb_group: []  # List of strings
+  log_images_wandb: false
+  disable_tqdm: false
+
+dataset:
+  dataset_path: "<<< REQUIRED: PATH_TO_DATASET >>>"
+  dataset_class: "<<< REQUIRED: DATASET_CLASS_NAME >>>"
+  num_classes: 3
+  split_strategy: "0.2"
+  augmentation_strategy: null  # or a string name
+  resize_size: 
+    - 384
+    - 384
+  dataset_params: {} 
+  loss_function: "cross_entropy"
+  ignore_class_weights: false
+
+model:
+  model_class: "<<< REQUIRED: MODEL_CLASS_NAME >>>"
+  weights_strategy: null # or a string strategy
+  model_params: {}
+
+training:
+  num_epochs: 2
+  validation_metric: "val_loss"
+  patience: null  # Integer or null
+  maximize_validation_metric: false
+  lr: 0.01
+  lr_decay: 1.0
+  bs_train: 32
+  bs_valid: 8
+  weight_decay: 0.0001
+  optimizer: "sgd"
+  momentum: 0.9
+
+performance:
+  num_workers: 5
+  pin_memory: true
+  use_amp: false
+  deterministic: false
+  benchmark: false
+  profile: false
+  profile_batches: 3
+  profile_verbosity: 0

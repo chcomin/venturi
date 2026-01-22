@@ -1,0 +1,7 @@
+# config_override.yaml
+experiment_name: "finetuning_experiment"
+
+optimizer:
+  _target_: "SGD"
+  lr: 0.01
+  momentum: 0.9  # Adding a new parameter specific to SGD
