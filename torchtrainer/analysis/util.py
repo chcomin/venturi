@@ -1,4 +1,4 @@
-"""Utility functions and classes for working with Pytorch modules"""
+"""Utility functions and classes for working with Pytorch modules."""
 
 import copy
 

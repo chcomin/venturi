@@ -196,7 +196,7 @@ def profile_model(
     return result
 
 def model_info(model: nn.Module, input_shape: tuple[int,...]) -> str:
-    """Prints number of floating points, activations and parameters shapes"""
+    """Prints number of floating points, activations and parameters shapes."""
 
     if not HAS_FVCORE:
         print("The fvcore package is not installed. Unable to count flops and activations.")
@@ -224,8 +224,8 @@ def benchmark_model(
         use_float16: bool = False, 
         return_model_info: bool = False
         ) -> dict:
-    """Benchmark model execution and returns the results in a dictionary. The model will be called as 
-    ``res = model(input).sum()``, with an optional call to res.backward().
+    """Benchmark model execution and returns the results in a dictionary. The model will be 
+    called as ``res = model(input).sum()``, with an optional call to res.backward().
 
     Parameters
     ----------
@@ -402,6 +402,7 @@ if __name__=="__main__":
 
     class Model(nn.Module):  # noqa: D101
         def __init__(self, num_layers=100, num_channels=16):
+            """A simple convolutional model for testing purposes."""
             super().__init__()
             self.layers = nn.ModuleList(
                 [nn.Conv2d(1, num_channels, 3)]

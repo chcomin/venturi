@@ -57,7 +57,7 @@ class Inspector:
         
         # No need to track these modules
         if modules_to_track is None:
-            ignore_modules = (nn.ModuleList,nn.ModuleDict,nn.Sequential)
+            ignore_modules: tuple = (nn.ModuleList,nn.ModuleDict,nn.Sequential)
             if not track_relu:
                 ignore_modules += (nn.ReLU,)
             modules = model.modules()
@@ -65,8 +65,9 @@ class Inspector:
             modules_to_track = modules
 
         if agg_func is None:
-            def agg_func(data, module_name, data_type, param_name=None):
+            def _agg_func(data, module_name, data_type, param_name=None):
                 return data
+            agg_func = _agg_func
                        
         self.modules_to_track = modules_to_track
         self.agg_func = agg_func
@@ -74,12 +75,12 @@ class Inspector:
         self.model = model
         self.model_name = model._get_name().lower()
         self.dict_module_to_str = self._create_module_dict()
-        self.model_acts = {"act":[], "act_grad":[]}       
+        self.model_acts: dict[str, list] = {"act":[], "act_grad":[]}       
         
         self.forward_hook = None
         self.backward_hook = None
-        self.act_hook_handles = []
-        self.act_grad_hook_handles = []
+        self.act_hook_handles: list = []
+        self.act_grad_hook_handles: list = []
         self.tracking_activations = False
         self.tracking_act_grads = False
         
@@ -203,8 +204,8 @@ class Inspector:
             name = self.dict_module_to_str[module]
             self._add_to_list(list(grad_output), name, "act_grad")
           
-        self.forward_hook = forward_hook
-        self.backward_hook = backward_hook
+        self.forward_hook = forward_hook # type: ignore
+        self.backward_hook = backward_hook # type: ignore
 
     def _add_activation_hooks(self) -> None:
         """Add hooks to modules."""
@@ -253,7 +254,9 @@ class Inspector:
 
         return out  
                 
-    def _add_to_list(self, data: torch.Tensor, module_name: str, data_type: str) -> None:
+    def _add_to_list(
+            self, data: torch.Tensor | list[torch.Tensor], module_name: str, data_type: str
+            ) -> None:
         """Receives activation data and save to list in the cpu. If the 
         model is being trained on the GPU, `data` resides in the GPU.
         `data_type can be 'act' or 'act_grad'.
