@@ -46,7 +46,7 @@ def silence_lightning():
         if "lightning" in logger_name:
             logger = logging.getLogger(logger_name)
             logger.addFilter(lightning_filter)
-            logger.setLevel(logging.ERROR)
+            #logger.setLevel(logging.ERROR)
 
 class CustomExperimentWriter(ExperimentWriter):
     """Lightning ExperimentWriter with different filename and no existing directory checks."""

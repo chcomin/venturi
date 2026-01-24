@@ -1,16 +1,15 @@
 seed: 0
 
 logging:
-  experiments_path: "_experiments"
-  experiment_name: "no_name_experiment"
-  run_name: "no_name_run"
+  enable: true
+  overwrite_existing: true
+  run_path: "_experiment"
   validate_every: 1
   save_val_imgs: false
   val_img_indices: 
     - 0
-  suppress_checkpoint: false
-  copy_model_every: 0
-  suppress_best_checkpoint: false
+  save_every_n_epochs: 0
+  save_top_k_models: 0
   log_wandb: false
   wandb_project: "uncategorized"
   wandb_group: []  # List of strings
@@ -18,38 +17,87 @@ logging:
   disable_tqdm: false
 
 dataset:
-  dataset_path: "<<< REQUIRED: PATH_TO_DATASET >>>"
-  dataset_class: "<<< REQUIRED: DATASET_CLASS_NAME >>>"
-  num_classes: 3
-  split_strategy: "0.2"
-  augmentation_strategy: null  # or a string name
-  resize_size: 
-    - 384
-    - 384
-  dataset_params: {} 
-  loss_function: "cross_entropy"
-  ignore_class_weights: false
+  setup:
+    _target_: "torchtrainer.data.reference_dataset.get_segmentation_dataset"
+  params:
+    num_train_samples: 100
+    num_val_samples: 20
+    num_channels: 3
+    num_classes: 1
+    img_size: 
+      - 64
+      - 64
+  train_transforms:
+    rrc:
+      _target_: torchvision.transforms.v2.RandomResizedCrop
+      size: 
+        - 64
+        - 64
+      scale:
+        - 0.6
+        - 1.0
+      ratio:
+        - 0.75
+        - 1.33
+      antialias: true
+    rhf:
+      _target_: torchvision.transforms.v2.RandomHorizontalFlip
+      p: 0.5
+    rvf:
+      _target_: torchvision.transforms.v2.RandomVerticalFlip
+      p: 0.5
+  val_transforms:
+  train_dataloader:
+    batch_size: 32
+    shuffle: true
+    num_workers: 0
+    persistent_workers: false
+    pin_memory: true
+  val_dataloader:
+    batch_size: 32
+    shuffle: false
+    num_workers: 0
+    persistent_workers: false
+    pin_memory: true
 
 model:
-  model_class: "<<< REQUIRED: MODEL_CLASS_NAME >>>"
-  weights_strategy: null # or a string strategy
-  model_params: {}
+  setup:
+    _target_: model.get_model
+  params:
+  weights_strategy: null 
+
+losses:
+  cross_entropy:
+    instance:
+      _target_: torchtrainer.metrics.losses.WeightedBCEWithLogitsLoss
+      weight: 
+        - 1.0
+        - 1.0
+    weight: 1.0
 
 training:
   num_epochs: 2
+  loss_function: 
+    _target_: "torch.nn.CrossEntropyLoss"
   validation_metric: "val_loss"
   patience: null  # Integer or null
   maximize_validation_metric: false
-  lr: 0.01
-  lr_decay: 1.0
-  bs_train: 32
-  bs_valid: 8
-  weight_decay: 0.0001
-  optimizer: "sgd"
-  momentum: 0.9
+  optimizer:
+    _target_: "torch.optim.SGD"
+    lr: 0.01
+    momentum: 0.9
+    weight_decay: 0.0001
+  lr_scheduler:
+    instance:
+      _target_: "torch.optim.lr_scheduler.PolynomialLR"
+      power: 1.0
+    scheduler_config:
+      interval: "step"
+    needs_total_iters: true
+    
 
 performance:
-  num_workers: 5
+  devices: 1
   pin_memory: true
   use_amp: false
   deterministic: false

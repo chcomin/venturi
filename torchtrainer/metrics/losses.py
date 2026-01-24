@@ -4,6 +4,74 @@ import torch
 import torch.nn.functional as F
 
 
+class CrossEntropyLoss(torch.nn.CrossEntropyLoss):
+    """Wrapper of CrossEntropyLoss that accepts class weights as a tuple, which makes
+    the constructor serializable to a yaml file.
+    """
+    
+    def __init__(
+        self,
+        weight: tuple | None = None,
+        ignore_index: int = -100,
+        reduction: str = "mean",
+        label_smoothing: float = 0.0,
+    ) -> None:
+        
+        if weight is not None:
+            weight = torch.as_tensor(weight, dtype=torch.float32)
+
+        super().__init__(
+            weight, ignore_index=ignore_index, reduction=reduction, label_smoothing=label_smoothing)
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        weight = self.weight
+        if weight is not None and weight.device != input.device:
+            self.weight = weight.to(input.device)
+        return super().forward(input, target)
+
+class WeightedBCEWithLogitsLoss(torch.nn.Module):
+    """Similar to nn.BCEWithLogitsLoss with pos_weight, but matches exactly the behavior of 
+    nn.CrossEntropyLoss when classes are weighted.
+    """
+
+    def __init__(self, weight: tuple | None = None, reduction="mean"):
+        """Args:
+        weight (torch.Tensor): A tensor of shape [2] containing [w_neg, w_pos].
+        reduction (str): 'mean', 'sum', or 'none'.
+        """
+        super().__init__()
+        if weight is None:
+            weight = torch.tensor([1.0, 1.0])
+        else:
+            weight = torch.as_tensor(weight, dtype=torch.float32)
+        # Ensure weight is a tensor and registers it as a buffer so it moves to GPU automatically
+        self.register_buffer("weight", weight)
+        self.reduction = reduction
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        # Move weight to correct device if needed
+        if self.weight.device != input.device:
+            self.weight = self.weight.to(input.device)
+
+        # 1. Calculate the binary cross entropy for every sample (no reduction yet)
+        #    We do NOT use pos_weight here; we apply weights manually later to match CE behavior.
+        losses = F.binary_cross_entropy_with_logits(input, target, reduction="none")
+        # Linear Interpolation of weights:
+        # If target is 1.0 -> 1.0 * w1 + 0.0 * w0 = w1
+        # If target is 0.0 -> 0.0 * w1 + 1.0 * w0 = w0
+        sample_weights = target * self.weight[1] + (1 - target) * self.weight[0]
+        # 3. Apply the weights to the losses
+        weighted_losses = losses * sample_weights
+
+        # 4. Perform the reduction (Exact CrossEntropyLoss behavior)
+        if self.reduction == "mean":
+            # CE Loss divides by the SUM of the weights of the active classes in the batch
+            return weighted_losses.sum() / sample_weights.sum()
+        elif self.reduction == "sum":
+            return weighted_losses.sum()
+        else:
+            return weighted_losses
+
 class SingleChannelCrossEntropyLoss(torch.nn.CrossEntropyLoss):
     """Cross entropy loss for single channel input. This function is a replacement for the 
     binary_cross_entropy_with_logits function in PyTorch, that is, it can be used for models 

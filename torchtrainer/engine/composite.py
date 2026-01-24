@@ -1,6 +1,11 @@
+from torch import nn
+
+from torchtrainer.engine.config import Config, instantiate
+
+
 class CompositeLoss(nn.Module):
     """Container class to combine multiple loss functions."""
-    def __init__(self, loss_components: dict[str, dict], return_logs: bool = False):
+    def __init__(self, cfg_loss: Config, return_logs: bool = True):
         """Args:
         loss_components: Dict structure from the builder:
         {
@@ -14,8 +19,8 @@ class CompositeLoss(nn.Module):
         self.weights = {}
 
         # Register components
-        for name, config in loss_components.items():
-            self.loss_map[name] = config["loss_fn"]
+        for name, config in cfg_loss.items():
+            self.loss_map[name] = instantiate(config["instance"])
             self.weights[name] = config["weight"]
 
     def forward(self, net_out, gt):
@@ -33,10 +38,6 @@ class CompositeLoss(nn.Module):
             
             # The child loss is responsible for picking what it needs
             val = loss_fn(net_out, gt)
-
-            # Safety check for scalars
-            #if not isinstance(val, torch.Tensor):
-            #    val = torch.tensor(val, device=getattr(net_out, "device", "cuda"))
 
             total_loss += weight * val
             logs[f"loss_{name}"] = val.detach()

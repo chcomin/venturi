@@ -8,6 +8,9 @@ import math
 import os
 import random
 import sys
+import string
+from typing import Any
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,6 +18,8 @@ import pandas as pd
 import torch
 from IPython import display, get_ipython
 from PIL import Image
+
+from torchtrainer.engine.config import Config
 
 with contextlib.suppress(ImportError):
     import wandb
@@ -265,6 +270,70 @@ class ParseText(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         text = " ".join(values)
         setattr(namespace, self.dest, text)
+
+def find_key_recursive(data: Config, target_key: str) -> Any:
+    """Recursively searches for a key in a nested dictionary.
+    Returns the value of the first match found.
+    """
+    if target_key in data:
+        return data[target_key]
+
+    for value in data.values():
+        if isinstance(value, Config):
+            result = find_key_recursive(value, target_key)
+            if result is not None:
+                return result
+                
+    return None
+
+def generate_name_from_config(config: Config, template: str) -> str:
+    """Fills a template string using values found recursively in a nested config dict.
+    
+    Args:
+        config: The nested dictionary (e.g., loaded from YAML).
+        template: A string like "model_{arch}_lr{lr:.4f}".
+        
+    Returns:
+        The formatted string.
+        
+    Raises:
+        KeyError: If a key required by the template is not found in the config.
+    """
+    # 1. Extract all variable names from the template (e.g., "lr", "bs")
+    # Formatter.parse returns tuples: (literal_text, field_name, format_spec, conversion)
+    needed_keys = {
+        field_name 
+        for _, field_name, _, _ in string.Formatter().parse(template) 
+        if field_name is not None
+    }
+
+    # 2. Find values for these keys
+    context = {}
+    for key in needed_keys:
+        value = find_key_recursive(config, key)
+        
+        if value is None:
+            raise KeyError(f"Template requires key '{key}', but it was not found in the config.")
+            
+        context[key] = value
+
+    # 3. Format the string using the found values
+    return template.format(**context)
+
+def get_next_experiment_name(run_path: Path) -> Path:
+    """If 'base_name' exists, appends _1, _2, etc. until a free name is found."""
+
+    directory = run_path.parent
+    base_name = run_path.name
+    if not run_path.exists():
+        return run_path
+
+    counter = 1
+    while True:
+        candidate = directory / f"{base_name}_{counter}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
 
 def dict_to_argv(param_dict: dict, positional_args: list | None = None) -> list:
     """Convert a dictionary to a list mimicking an argv list received by a

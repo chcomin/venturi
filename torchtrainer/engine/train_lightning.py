@@ -1,5 +1,4 @@
 import shutil
-import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -8,6 +7,7 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torchmetrics
+import torchmetrics.segmentation
 import torchvision
 import yaml
 from PIL import Image
@@ -15,11 +15,12 @@ from pytorch_lightning.callbacks import Callback, EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers import CSVLogger, WandbLogger
 from pytorch_lightning.profilers import PyTorchProfiler
 from torch.optim import SGD, Adam, AdamW
-from torch.utils.data import DataLoader, TensorDataset, random_split
+from torch.utils.data import DataLoader, default_collate
 
+from torchtrainer.engine.config import Config, instantiate
 from torchtrainer.engine.lightning_util import silence_lightning
-from torchtrainer.engine.train_util import seed_worker
-from torchtrainer.engine.config import Config
+from torchtrainer.engine.train_util import seed_worker, generate_name_from_config, get_next_experiment_name
+from torchtrainer.engine.composite import CompositeLoss
 
 try:
     import wandb
@@ -29,107 +30,66 @@ else:
     from pytorch_lightning.loggers import WandbLogger
     _has_wandb = True
 
-def get_loss(name, ignore_weights=False):
-    # This is a placeholder. You would typically return specific torch.nn modules here.
-    if name == "cross_entropy":
-        return nn.CrossEntropyLoss()
-    elif name == "mse":
-        return nn.MSELoss()
-    else:
-        raise ValueError(f"Unknown loss function: {name}")
-
-def get_optimizer(model_params, args):
-    args_t = args.training
-    if args_t.optimizer.lower() == "sgd":
-        return SGD(
-            model_params, lr=args_t.lr, momentum=args_t.momentum, weight_decay=args_t.weight_decay)
-    elif args_t.optimizer.lower() == "adam":
-        return Adam(model_params, lr=args_t.lr, weight_decay=args_t.weight_decay)
-    elif args_t.optimizer.lower() == "adamw":
-        return AdamW(model_params, lr=args_t.lr, weight_decay=args_t.weight_decay)
-    else:
-        raise ValueError(f"Unknown optimizer: {args_t.optimizer}")
-
-class GenericDataModule(pl.LightningDataModule):
+class BaseDataModule(pl.LightningDataModule):
     def __init__(self, args):
         super().__init__()
         self.args = args
+        self.ds_dict: dict[str, torch.utils.data.Dataset] = {}
 
     def setup(self, stage=None):
-        # Demo Placeholder Dataset
-        args_d = self.args.dataset
-        H, W = args_d.resize_size
-        N_SAMPLES = 50 # Small number for mockup
-        
-        # MOCK INPUT: Random RGB Images (N, 3, H, W)
-        mock_images = torch.rand(N_SAMPLES, 3, H, W)
-        
-        # MOCK TARGET: Random Segmentation Masks (N, H, W) with values 0 to num_classes-1
-        mock_targets = torch.randint(0, args_d.num_classes, (N_SAMPLES, H, W))
-        
-        full_dataset = TensorDataset(mock_images, mock_targets)
 
-        # Split strategy
-        try:
-            val_split = float(args_d.split_strategy)
-            val_size = int(len(full_dataset) * val_split)
-            train_size = len(full_dataset) - val_size
-            generator = torch.Generator().manual_seed(self.args.seed)
-            self.train_ds, self.val_ds = random_split(full_dataset, [train_size, val_size], generator=generator)
-        except ValueError:
-            print("Complex split strategy not implemented in this demo")
-            self.train_ds = full_dataset
-            self.val_ds = full_dataset
+        # Call the function indicated in self.args.dataset.setup, passing self.args as
+        # the only parameter
+        get_dataset = instantiate(self.args.dataset.setup, partial=True)
+        self.ds_dict = get_dataset(stage, self.args)
 
     def train_dataloader(self):
-        # TODO: collate_fn
+        if "train_ds" not in self.ds_dict:
+            return None
         return DataLoader(
-            self.train_ds, 
-            batch_size=self.args.training.bs_train, 
-            shuffle=True, 
-            num_workers=self.args.performance.num_workers,
-            persistent_workers=self.args.performance.num_workers > 0,
-            worker_init_fn=seed_worker,
-            pin_memory=self.args.performance.pin_memory,
-        )
+            self.ds_dict["train_ds"], 
+            worker_init_fn=seed_worker, 
+            generator=torch.Generator().manual_seed(self.args.seed),
+            **self.args.dataset.train_dataloader)
 
     def val_dataloader(self):
+        if "val_ds" not in self.ds_dict:
+            return None
         return DataLoader(
-            self.val_ds, 
-            batch_size=self.args.training.bs_valid, 
-            shuffle=False, 
-            num_workers=self.args.performance.num_workers,
-            persistent_workers=self.args.performance.num_workers > 0,
-            worker_init_fn=seed_worker,
-            pin_memory=self.args.performance.pin_memory,
-        )
+            self.ds_dict["val_ds"],
+            worker_init_fn=seed_worker, 
+            generator=torch.Generator().manual_seed(self.args.seed),
+            **self.args.dataset.val_dataloader)
+    
+    def test_dataloader(self):
+        if "test_ds" not in self.ds_dict:
+            return None
+        return DataLoader(
+            self.ds_dict["test_ds"],
+            worker_init_fn=seed_worker, 
+            generator=torch.Generator().manual_seed(self.args.seed),
+            **self.args.dataset.test_dataloader)
+    
+    def predict_dataloader(self):
+        if "predict_ds" not in self.ds_dict:
+            return None
+        return DataLoader(
+            self.ds_dict["predict_ds"],
+            worker_init_fn=seed_worker, 
+            generator=torch.Generator().manual_seed(self.args.seed),
+            **self.args.dataset.predict_dataloader)
 
-
-class TrainingModule(pl.LightningModule):
+class BaseTrainingModule(pl.LightningModule):
     def __init__(self, args):
         super().__init__()
-        self.save_hyperparameters(args)
-        args = Config(args)
         self.args = args
-        args_d  = args.dataset
-        num_classes = args_d.num_classes
 
-        # Placeholder for demo purposes:
-        self.model = nn.Sequential(
-            nn.Conv2d(3, 16, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(16, num_classes, kernel_size=1)
-        )
-        
-        self.loss_fn = get_loss(args_d.loss_function, args_d.ignore_class_weights)
+        get_model = instantiate(self.args.model.setup, partial=True)
+        self.model = get_model(self.args)
 
-        metrics = torchmetrics.MetricCollection({
-            "Accuracy": torchmetrics.Accuracy(task="multiclass", num_classes=num_classes, ignore_index=-100),
-            "IoU": torchmetrics.JaccardIndex(task="multiclass", num_classes=num_classes, ignore_index=-100),
-            #"Dice": torchmetrics.segmentation.DiceScore(num_classes=num_classes),
-            "Precision": torchmetrics.Precision(task="multiclass", num_classes=num_classes, ignore_index=-100),
-            "Recall": torchmetrics.Recall(task="multiclass", num_classes=num_classes, ignore_index=-100),
-        })
+        self.loss_fn = CompositeLoss(args.losses)   
+        # Performance Metrics
+        metrics = self.get_metrics()
 
         self.train_metrics = metrics.clone(prefix="train_")
         self.val_metrics = metrics.clone(prefix="val_")
@@ -140,9 +100,13 @@ class TrainingModule(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = batch
         logits = self(x)
-        loss = self.loss_fn(logits, y)
-        
+        loss, loss_logs = self.loss_fn(logits, y)
+
         self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+        for key, value in loss_logs.items():
+            # Add train_ prefix to loss names
+            self.log(f"train_{key}", value, on_step=True, on_epoch=True, prog_bar=False)
+
         output = self.train_metrics(logits, y)
         self.log_dict(output, on_step=False, on_epoch=True, prog_bar=False)
 
@@ -151,31 +115,57 @@ class TrainingModule(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         x, y = batch
         logits = self(x)
-        loss = self.loss_fn(logits, y)
+        loss, loss_logs = self.loss_fn(logits, y)
         
         self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
+        for key, value in loss_logs.items():
+            self.log(f"val_{key}", value, on_step=False, on_epoch=True, prog_bar=False)
 
         output = self.val_metrics(logits, y)
         self.log_dict(output, on_step=False, on_epoch=True, prog_bar=False)
-            
         return loss
 
     def configure_optimizers(self):
-        optimizer = get_optimizer(self.parameters(), self.args)
+
+        args_t = self.args.training
+        optimizer_factory = instantiate(self.args.training.optimizer, partial=True)
+        optimizer = optimizer_factory(self.parameters())
         
-        if self.args.training.lr_decay > 0:
-            scheduler = torch.optim.lr_scheduler.PolynomialLR(
-                optimizer, 
-                total_iters=self.trainer.estimated_stepping_batches, 
-                power=self.args.training.lr_decay
-            )
-            lr_scheduler_config = {
-                "scheduler": scheduler,
-                "interval": "step",
-            }
-            return [optimizer], [lr_scheduler_config]
+        output = {"optimizer": optimizer}
+
+        if "lr_scheduler" in args_t:
+            scheduler_factory = instantiate(args_t.lr_scheduler.instance, partial=True)
+            args = {"optimizer": optimizer}
+            # Some lr_schedulers need to know the total number of iterations
+            if getattr(args_t.lr_scheduler, "needs_total_iters", False):
+                if args_t.lr_scheduler.scheduler_config.interval == "epoch":
+                    total_steps = self.trainer.max_epochs
+                else:
+                    total_steps = self.trainer.estimated_stepping_batches
+                args["total_iters"] = total_steps
+
+            scheduler = scheduler_factory(**args)
+
+            lr_scheduler_config = args_t.lr_scheduler.scheduler_config.to_dict()
+            lr_scheduler_config["scheduler"] = scheduler
+
+            output["lr_scheduler"] = lr_scheduler_config
         
-        return optimizer
+        return output
+
+    def get_metrics(self):
+        # Metrics are usually not hyperparameters, so no need to define them in the yaml file.
+        num_classes = self.args.dataset.params.num_classes
+
+        metrics = torchmetrics.MetricCollection({
+            "Accuracy": torchmetrics.Accuracy(task="binary", num_classes=num_classes),
+            "IoU": torchmetrics.JaccardIndex(task="binary", num_classes=num_classes),
+            "Dice": torchmetrics.segmentation.DiceScore(num_classes=num_classes, average="macro"),
+            "Precision": torchmetrics.Precision(task="binary", num_classes=num_classes),
+            "Recall": torchmetrics.Recall(task="binary", num_classes=num_classes),
+        })
+
+        return metrics
 
 class PlottingCallback(Callback):
     """Reads the CSV log generated by Lightning and creates a static plot 
@@ -380,75 +370,55 @@ class ExperimentRunner:
 
         self.data_module = self.get_data_module()
     
-    def setup_dirs(self, interactive=True):
+    def setup_dirs(self):
         """Handles the directory creation logic. 
         interactive=False is useful for automated jobs (Optuna/Slurm).
         """
         args_l = self.args.logging
-        experiments_path = Path(args_l.experiments_path)
-        run_name = args_l.run_name
+
+        args_copy = self.args.copy()
+        args_copy.logging.run_path = ""
+        run_path = generate_name_from_config(args_copy, args_l.run_path)
+        run_path = Path(run_path)
         
-        # If we are in an Optuna trial, we might want to auto-generate names or skip checks
-        if not interactive:
-            # Setup path without asking questions
-            experiment_path = experiments_path / args_l.experiment_name
-            run_path = experiment_path / run_name
-            run_path.mkdir(parents=True, exist_ok=True)
-            self.run_path = run_path
-            return
-
-        experiment_path = experiments_path / args_l.experiment_name
-        run_path = experiment_path / run_name
-
         if run_path.exists():
-            print(f"Run directory '{run_path}' already exists.")
-            action = input(
-                "Press Enter to overwrite, write 'exit' to cancel, or provide a new name: ").strip()
-            
-            if action == "exit":
-                sys.exit(0)
-            elif action:
-                run_name = action
-                run_path = experiment_path / run_name
-            else:
-                shutil.rmtree(run_path)
-
+            if args_l.overwrite_existing:
+                shutil.rmtree(run_path)  
+            else:   
+                run_path = get_next_experiment_name(run_path)
         run_path.mkdir(parents=True, exist_ok=True)
-        
+
         # Create subfolders
         if args_l.save_val_imgs:
             (run_path / "images").mkdir(exist_ok=True)
             for idx in args_l.val_img_indices:
                 (run_path / "images" / f"image_{idx}").mkdir(exist_ok=True)
                 
-        if args_l.copy_model_every and not args_l.suppress_checkpoint:
-            (run_path / "models").mkdir(exist_ok=True)
+        (run_path / "models").mkdir(exist_ok=True)
             
         self.run_path = run_path
         
         # Save config
-        with open(run_path / "config.yaml", "w") as f:
-            yaml.dump(vars(self.args), f)
+        self.args.save(run_path / "config.yaml")
 
     def get_data_module(self):
-        """Override this for different dataset logic"""
-        return GenericDataModule(self.args)
+        """Override this for a different dataset logic (e.g.: multiple datasets)."""
+        return BaseDataModule(self.args)
 
     def get_model(self):
-        """Override this for different model logic"""
-        # Example of dynamic num_classes detection
-        return TrainingModule(self.args.to_dict())
+        return BaseTrainingModule(self.args)
 
     def get_loggers(self):
         """Setup loggers. Can be overridden to add MLFlow, Comet, etc."""
         # Use parent dir so we don't get nested version folders
         args_l = self.args.logging
         save_dir = str(self.run_path.parent)
+        run_name = self.run_path.name
         
         loggers = []
 
         loggers.append(
-            CSVLogger(save_dir=save_dir, name=args_l.run_name, version=None)
+            CSVLogger(save_dir=save_dir, name=run_name, version=None)
         )
         
         if args_l.log_wandb:
@@ -456,7 +426,7 @@ class ExperimentRunner:
                 raise ImportError("WandbLogger requires wandb to be installed. Please install it or disable wandb logging.")
             loggers.append(WandbLogger(
                 project=args_l.wandb_project, 
-                name=args_l.run_name, 
+                name=run_name, 
                 save_dir=str(self.run_path)
             ))
             
@@ -486,38 +456,44 @@ class ExperimentRunner:
             ))
 
         # Checkpointing
-        if not args_l.suppress_checkpoint:
-            mode = "max" if args_t.maximize_validation_metric else "min"
-            # Best Model
-            if not args_l.suppress_best_checkpoint:
-                callbacks.append(ModelCheckpoint(
-                    dirpath=self.run_path,
-                    filename="best_model",
-                    monitor=args_t.validation_metric,
-                    mode=mode,
-                    save_top_k=1
-                ))
-            # Last Model
+        mode = "max" if args_t.maximize_validation_metric else "min"
+
+        if args_l.save_every_n_epochs > 0:
             callbacks.append(ModelCheckpoint(
-                dirpath=self.run_path,
+                dirpath=self.run_path / "models",
                 filename="last_checkpoint",
-                save_last=True
+                save_top_k=1,
+                save_last=False,
+                monitor=None,
+                every_n_epochs=args_l.save_every_n_epochs
             ))
-            if args_l.copy_model_every > 0:
-                callbacks.append(ModelCheckpoint(
-                    dirpath=self.run_path / "models",
-                    filename="checkpoint_{epoch}",
-                    every_n_epochs=args_l.copy_model_every,
-                    save_top_k=-1 # Keep all
-                ))
-            
+        # Best Model
+        if args_l.save_top_k_models > 0:
+            callbacks.append(ModelCheckpoint(
+                dirpath=self.run_path / "models",
+                filename="best_model_{epoch}_{val_loss:.4f}",
+                save_top_k=args_l.save_top_k_models,
+                save_last=False,
+                monitor=args_t.validation_metric,
+                mode=mode
+            ))
+
+        if "extra_callbacks" in args_t:
+            for cb_conf in args_t.extra_callbacks.values():
+                cb = instantiate(cb_conf)
+                callbacks.append(cb)
+
         return callbacks
 
-    def run(self, interactive=True, extra_callbacks=None, recreate_dataset=False):
-        """Main entry point.
-        """
+    def run(self, args_overrides = None, extra_callbacks=None, recreate_dataset=False):
+        """Main entry point."""
+
+        if args_overrides:
+            self.args.update_from_dict(args_overrides)
+
         # Setup Phase
-        self.setup_dirs(interactive=interactive)
+        if self.args.logging.enable:
+            self.setup_dirs()
         pl.seed_everything(self.args.seed)
 
         if recreate_dataset:
@@ -527,7 +503,7 @@ class ExperimentRunner:
         
         # Configure Trainer components
         loggers = self.get_loggers()
-        callbacks = self.get_callbacks(extra_callbacks)        
+        callbacks = self.get_callbacks(extra_callbacks)   
 
         profiler = None
         if self.args.performance.profile:
@@ -540,8 +516,9 @@ class ExperimentRunner:
             schedule=torch.profiler.schedule(
                 wait=1, warmup=1, active=self.args.performance.profile_batches)
             )
+
+        enable_checkpointing = any(isinstance(cb, ModelCheckpoint) for cb in callbacks) 
         
-        # Initialize Trainer
         self.trainer = pl.Trainer(
             default_root_dir=str(self.run_path),
             logger=loggers,
@@ -549,14 +526,14 @@ class ExperimentRunner:
             max_epochs=self.args.training.num_epochs,
             check_val_every_n_epoch=self.args.logging.validate_every,
             accelerator="auto",
-            devices=1, 
+            devices=self.args.performance.devices, 
             enable_progress_bar=not self.args.logging.disable_tqdm, 
-            enable_checkpointing=True,
+            enable_checkpointing=enable_checkpointing,
             precision="16-mixed" if self.args.performance.use_amp else 32,
             deterministic=self.args.performance.deterministic,
             benchmark=self.args.performance.benchmark,
             profiler=profiler,
-            enable_model_summary=interactive
+            enable_model_summary=False
         )
 
         # Fit

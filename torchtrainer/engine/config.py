@@ -287,8 +287,7 @@ def instantiate(config, partial: bool | None = None):
     
     Special keywords:
     - _target_: The class or function to create.
-    - _partial_: If True, returns a partial (factory) instead of an object. Default behavior 
-        if 'partial' arg is None.
+    - _partial_: If True, returns a partial (factory) instead of an object.
     - _raw_: If True, returns the dictionary as-is (stops recursion).
     - keys starting with "_": Treated as meta keys and ignored during instantiation.
     """
@@ -320,7 +319,7 @@ def instantiate(config, partial: bool | None = None):
 
     # A. Resolve Target
     target_str = config["_target_"]
-    target_cls = get_target(target_str)
+    target = get_target(target_str)
 
     # B. Build Arguments (FILTERING HAPPENS HERE)
     kwargs = {}
@@ -334,6 +333,6 @@ def instantiate(config, partial: bool | None = None):
     should_be_partial = partial if partial is not None else config.get("_partial_", False)
     
     if should_be_partial:
-        return functools_partial(target_cls, **kwargs)
+        return functools_partial(target, **kwargs)
     else:
-        return target_cls(**kwargs)
+        return target(**kwargs)
