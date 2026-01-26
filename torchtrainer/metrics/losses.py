@@ -53,6 +53,8 @@ class WeightedBCEWithLogitsLoss(torch.nn.Module):
         if self.weight.device != input.device:
             self.weight = self.weight.to(input.device)
 
+        target = target.float()
+
         # 1. Calculate the binary cross entropy for every sample (no reduction yet)
         #    We do NOT use pos_weight here; we apply weights manually later to match CE behavior.
         losses = F.binary_cross_entropy_with_logits(input, target, reduction="none")

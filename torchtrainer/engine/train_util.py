@@ -286,6 +286,20 @@ def find_key_recursive(data: Config, target_key: str) -> Any:
                 
     return None
 
+def delete_wandb_run(project_name: str, run_path: str):
+
+    api = wandb.Api()
+    runs = api.runs(project_name, {"config.logging.run_path": run_path})
+    try:
+        num_runs = len(runs) 
+    except (ValueError, TypeError):
+        # Project does not exist
+        num_runs = 0
+
+    for run in runs:
+        run.delete()   
+
+
 def generate_name_from_config(config: Config, template: str) -> str:
     """Fills a template string using values found recursively in a nested config dict.
     

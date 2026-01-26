@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 from torch import nn
 
 from torchtrainer.engine.config import Config, instantiate
@@ -5,23 +7,22 @@ from torchtrainer.engine.config import Config, instantiate
 
 class CompositeLoss(nn.Module):
     """Container class to combine multiple loss functions."""
-    def __init__(self, cfg_loss: Config, return_logs: bool = True):
+    def __init__(self, cfg_loss: Config, return_logs: bool = True, prefix: str = ""):
         """Args:
-        loss_components: Dict structure from the builder:
-        {
-            'name_for_logging': {'loss_fn': nn.Module, 'weight': float},
-            ...
-        }.
+            cfg_loss: Configuration dictionary for the loss functions.
+            return_logs: Whether to return individual loss values as logs.
+            prefix: Prefix to add to the loss names in the logs.
         """
         super().__init__()
         self.loss_map = nn.ModuleDict()
+        self.cfg_loss = cfg_loss
         self.return_logs = return_logs
         self.weights = {}
 
         # Register components
         for name, config in cfg_loss.items():
-            self.loss_map[name] = instantiate(config["instance"])
-            self.weights[name] = config["weight"]
+            self.loss_map[f"{prefix}{name}"] = instantiate(config["instance"])
+            self.weights[f"{prefix}{name}"] = config["loss_weight"]
 
     def forward(self, net_out, gt):
         """Passes the FULL net_out and gt to every child loss.
@@ -40,8 +41,12 @@ class CompositeLoss(nn.Module):
             val = loss_fn(net_out, gt)
 
             total_loss += weight * val
-            logs[f"loss_{name}"] = val.detach()
+            logs[name] = val.detach()
 
         output = (total_loss, logs) if self.return_logs else total_loss
 
         return output
+    
+    def clone(self, prefix: str = "") -> "CompositeLoss":
+        """Make a copy of the class."""
+        return self.__class__(deepcopy(self.cfg_loss), self.return_logs, prefix)

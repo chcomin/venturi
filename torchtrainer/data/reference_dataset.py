@@ -136,7 +136,7 @@ class BaseSegmentationTransform:
         img_out, mask_out = self.transforms(img_tv, mask_tv)
 
         img_out = img_out.float()
-        mask_out = mask_out.float()
+        mask_out = mask_out.long()
 
         return img_out, mask_out
 

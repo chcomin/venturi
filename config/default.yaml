@@ -1,44 +1,92 @@
 seed: 0
 
 logging:
-  enable: true
+  # By default, a run_path folder is always created for each run. You can disable it, for instance,
+  # when doing hyperparameter search where multiple runs are done without logging.
+  # But notice that this may have side effects if any logger or disk writting is enabled since 
+  #   they write to this folder.
+  create_folder: true
+  # Can be base_name/subfolder/run_name, the full path will be created
+  # You can use any variable from the config using {variable_name}, for instance
+  # run_path: "runs/name_{lr:.3f}_{batch_size}"
+  run_path: "_experiment" 
+  # If true, erases the content if a run_path with the same name exists
+  # If false, creates a new folder named run_path_1, run_path_2, ...
   overwrite_existing: true
-  run_path: "_experiment"
-  validate_every: 1
-  save_val_imgs: false
-  val_img_indices: 
-    - 0
-  save_every_n_epochs: 0
-  save_top_k_models: 0
-  log_wandb: false
-  wandb_project: "uncategorized"
-  wandb_group: []  # List of strings
-  log_images_wandb: false
-  disable_tqdm: false
-
+  # Enable or disable individual loggers
+  log_csv: true
+  # Model checkpoints
+  log_checkpoints: false
+  # Plotting requires log_csv to be true since the data is read from the csv file
+  log_plot: true
+  enable_progress_bar: false
+  # Lightning tends to print some information to the console, thius setting silences it
+  # Notice that this also suppress warnings and performance tips.
+  silence_lightning: true
+  # csv and wandb training (not validation) log frequency in gradient steps, if they are enabled
+  log_every_n_steps: 4
+  # Model checkpoint settings
+  save_model_every_n_epochs: 1
+  # Number of top models to save based on validation_metric
+  save_top_k_models: 1
+  # Plot configuration. Two subplots are made with plt.subplots(1, 2).
+  # Any logged metric can be inserted on the left and right plots.
+  plot:
+    left_plot:
+      metrics:
+        - "train/loss"
+        - "val/loss"
+      ylim: 
+        min: 0.0
+        max: null
+    right_plot:
+      metrics:
+        - "val/accuracy"
+        - "val/dice"
+        - "val/precision"
+        - "val/recall"
+      ylim: 
+        min: 0.0
+        max: 1.1
+  # Enable/disable validation data saving. Results can be saved to disk and/or wandb.
+  # Note: it is assumed that model outputs are images. If not, custom code is needed.
+  save_val_data: false
+  # Indices of validation data samples to save
+  val_data_indices: [0, 1, 2, 3]
+  # When save_val_data is true, log validation images to disk
+  log_to_disk: false
+  wandb:
+    # Enable/disable wandb logging. All metrics will be send to wandb if true.
+    log_wandb: false
+    # Suppress wandb prints to the console. Notice that this might also suppress errors and warnings.
+    silence_wandb: true
+    wandb_project: "baseline"
+    wandb_group: 
+    # When save_val_data and log_wandb are true, validation images can also be logged to wandb
+    log_val_data_wandb: false
+    # Names to use for masks in wandb UI when log_val_data_wandb is true
+    class_labels: ["Background", "Foreground"]
+   
 dataset:
   setup:
+    # Function that returns the train, val and/or test and prediction dataset objects
+    # The function receives as input this yaml file. Thus, it has access to all configuraiton parameters.
     _target_: "torchtrainer.data.reference_dataset.get_segmentation_dataset"
   params:
+    # Parameters for dataset creation. You can add or remove parameters as needed and access 
+    # them in the dataset creation function.
     num_train_samples: 100
     num_val_samples: 20
     num_channels: 3
     num_classes: 1
-    img_size: 
-      - 64
-      - 64
+    img_size: [64, 64]
+  # Data augmentation and preprocessing transforms. They can be changed as needed.
   train_transforms:
     rrc:
       _target_: torchvision.transforms.v2.RandomResizedCrop
-      size: 
-        - 64
-        - 64
-      scale:
-        - 0.6
-        - 1.0
-      ratio:
-        - 0.75
-        - 1.33
+      size: [64, 64]
+      scale: [0.6, 1.0]
+      ratio: [0.75, 1.33]
       antialias: true
     rhf:
       _target_: torchvision.transforms.v2.RandomHorizontalFlip
@@ -47,61 +95,93 @@ dataset:
       _target_: torchvision.transforms.v2.RandomVerticalFlip
       p: 0.5
   val_transforms:
+  # Parameters for the data loaders
   train_dataloader:
-    batch_size: 32
+    batch_size: 8
     shuffle: true
     num_workers: 0
     persistent_workers: false
     pin_memory: true
   val_dataloader:
-    batch_size: 32
+    batch_size: 8
     shuffle: false
     num_workers: 0
     persistent_workers: false
     pin_memory: true
 
 model:
+  # Model creation function. The function receives as input this yaml file.
   setup:
     _target_: model.get_model
-  params:
-  weights_strategy: null 
 
 losses:
+  # Flexible definition of multiple losses. You can add any loss here. loss_weight sets the weight
+  # of each loss in the final combined loss.
   cross_entropy:
     instance:
       _target_: torchtrainer.metrics.losses.WeightedBCEWithLogitsLoss
-      weight: 
-        - 1.0
-        - 1.0
-    weight: 1.0
+      weight: [1.0, 1.0]
+    loss_weight: 1.0
+
+metrics:
+  # Function that returns a torchmetrics.MetricCollection object with all performance metrics
+  # The function receives as input this yaml file. 
+  # The metrics are not as flexible as the losses (being able to define each of them in this yaml file)
+  # because metrics are rarely hyperparameters to tune. 
+  _target_: torchtrainer.engine.metrics.binary_segmentation_metrics
 
 training:
-  num_epochs: 2
-  loss_function: 
-    _target_: "torch.nn.CrossEntropyLoss"
-  validation_metric: "val_loss"
-  patience: null  # Integer or null
-  maximize_validation_metric: false
+  # Optimizer class and respective parameters
   optimizer:
     _target_: "torch.optim.SGD"
     lr: 0.01
     momentum: 0.9
     weight_decay: 0.0001
   lr_scheduler:
+    # Scheduler class and respective parameters
     instance:
       _target_: "torch.optim.lr_scheduler.PolynomialLR"
       power: 1.0
+    # lr_scheduler_config dictionary to pass to LightningModule.configure_optimizers
     scheduler_config:
       interval: "step"
     needs_total_iters: true
-    
-
-performance:
-  devices: 1
-  pin_memory: true
-  use_amp: false
-  deterministic: false
-  benchmark: false
+  # Parameters for the main Lightning Trainer
+  trainer_params:
+    # Relevant precisions: 
+    # 32-true: full precision
+    # 16-mixed: best for older GPUs with Tensor Cores (RTX 20xx, V100, T4)
+    # bf16-mixed: best for Ampere (RTX 30xx, A100 as well as RTX 40xx)
+    # transformer-engine: best for Hopper and newer (H100, RTX 5090, RTX PRO 5000)
+    #   but can lead to some stability issues since it is FP8 based
+    precision: "bf16-mixed" 
+    max_epochs: 10
+    # Gradient accumulation steps
+    accumulate_grad_batches: 1
+    # Gradient norm clipping. If null, no clipping is applied
+    gradient_clip_val: null
+    # Validate every n epochs
+    check_val_every_n_epoch: 1
+    # Enable deterministic training for reproducibility. Can also be set to "warn" to use
+    # deterministic algorithms whenever possible, and warn when nondeterministic operations are used.
+    deterministic: false
+    # If true, enables the benchmark mode in cudnn. This usually leads to faster training
+    benchmark: false
+    # Additonal Trainer kwargs
+    kwargs: {}
+  # Metric to monitor for top k model checkpointing and early stopping
+  validation_metric: "val/loss"
+  # Stop training if no improvement after 'patience' validation runs
+  patience: null 
+  # Whether to maximize or minimize the validation metric
+  maximize_validation_metric: false
+  # If the validation metric gets worse than this threshold, training stops
+  divergence_threshold: null
+  # Enable the profiler to analyze performance bottlenecks
   profile: false
-  profile_batches: 3
+  # Profiler output level. In general, higher values lead to more detailed profiling but also
+  # higher overhead and final file size. Valid values are:
+  # 0: basic timing 1: flops, 2: record shapes, 3: memory, 4: stack, 5: core occupancy and dram throughput
   profile_verbosity: 0
+  # If true, monitors GPU and CPU usage and logs it to the csv and wandb logger
+  monitor_device_stats: false

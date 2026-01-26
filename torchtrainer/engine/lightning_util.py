@@ -22,7 +22,6 @@ class LightningLogFilter(logging.Filter):
         msg = str(record.msg)
 
         forbidden_phrases = [
-            "Seed set to",
             "LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES",
         ]
         
@@ -32,7 +31,8 @@ class LightningLogFilter(logging.Filter):
 def silence_lightning():
     """Silence annoying Lightning messages."""
 
-    warnings.filterwarnings("ignore", ".*exists and is not empty.*")
+    warnings.filterwarnings("ignore", module="lightning")
+    warnings.filterwarnings("ignore", message=".*does not have many workers.*")
     warnings.filterwarnings("ignore", ".*The number of training batches.*")
 
     lightning_filter = LightningLogFilter()
@@ -46,7 +46,7 @@ def silence_lightning():
         if "lightning" in logger_name:
             logger = logging.getLogger(logger_name)
             logger.addFilter(lightning_filter)
-            #logger.setLevel(logging.ERROR)
+            logger.setLevel(logging.ERROR)
 
 class CustomExperimentWriter(ExperimentWriter):
     """Lightning ExperimentWriter with different filename and no existing directory checks."""
