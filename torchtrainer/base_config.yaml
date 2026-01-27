@@ -113,7 +113,12 @@ model:
   # Model creation function. The function receives as input this yaml file.
   setup:
     _target_: model.get_model
-
+  params:
+    num_channels: 3
+    num_classes: 1
+    base_filters: 16
+    use_batchnorm: true
+    dropout_rate: 0.1
 losses:
   # Flexible definition of multiple losses. You can add any loss here. loss_weight sets the weight
   # of each loss in the final combined loss.
@@ -148,6 +153,12 @@ training:
     needs_total_iters: true
   # Parameters for the main Lightning Trainer
   trainer_params:
+    # Number of  GPUs to use.
+    devices: 1
+    # Lightning uses DDP by default if multiple GPUs are available. It also supports fsdp and deepspeed
+    # for training models that do not fit in GPU memory. But in such cases it is best to pass a 
+    # FSDPStrategy or DeepSpeedStrategy object to the strategy parameter with the desired configuration.
+    strategy: auto
     # Relevant precisions: 
     # 32-true: full precision
     # 16-mixed: best for older GPUs with Tensor Cores (RTX 20xx, V100, T4)

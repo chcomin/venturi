@@ -1,6 +1,9 @@
 """Configuration utilities for dynamic config management and object instantiation."""
 
+import argparse
 import importlib
+import shutil
+import sys
 from collections.abc import Mapping
 from copy import deepcopy
 from functools import partial as functools_partial
@@ -11,8 +14,7 @@ import torch.nn as nn
 import torch.optim as optim
 import yaml
 
-# --- SHORTCUTS REGISTRY ---
-# Reduces verbosity for standard PyTorch components.
+# Short names for standard PyTorch components.
 SHORTCUTS = {
     # Optimizers
     "Adam": optim.Adam,
@@ -23,6 +25,7 @@ SHORTCUTS = {
     # Schedulers
     "ReduceLROnPlateau": optim.lr_scheduler.ReduceLROnPlateau,
     "CosineAnnealingLR": optim.lr_scheduler.CosineAnnealingLR,
+    "PolynomialLR": optim.lr_scheduler.PolynomialLR,
     "StepLR": optim.lr_scheduler.StepLR,
     
     # Losses
@@ -41,24 +44,24 @@ SHORTCUTS = {
 class Config(Mapping):
     """A dynamic configuration class that behaves like a dictionary but 
     allows dot-notation access. It supports loading from YAML, 
-    updates, and saving back to YAML.
+    updating from another Config, and saving back to YAML.
     """
 
-    def __init__(self, path: str | Path | None = None):
+    def __init__(self, source: str | Path | dict | None = None):
         """Initializes the Config object.
         
         Args:
-            path: Path to a YAML configuration file to initialize from.
-                  If None, creates an empty config.
+            source: Path to a YAML configuration file or a dictionary to initialize from.
+            If None, creates an empty config.
         """
 
-        if path is None:
+        if source is None:
             return
 
-        if isinstance(path, str | Path):
-            self.update_from_yaml(path, allow_extra=True)
-        elif isinstance(path, dict):
-            self._load_from_dict(path)
+        if isinstance(source, str | Path):
+            self.update_from_yaml(source, allow_extra=True)
+        elif isinstance(source, dict):
+            self._load_from_dict(source)
         else:
             raise ValueError(
                 "Config can only be initialized from a YAML file path or a dictionary.")
@@ -93,7 +96,8 @@ class Config(Mapping):
             setattr(self, key, value)
 
     def update_from_dict(self, dictionary: dict[str, Any], allow_extra: bool = False):
-        """Recursively update the configuration using the given dictionary.
+        """Recursively update the configuration using the given dictionary. Existing keys are
+        updated with new values, while new keys are added if allow_extra=True.
 
         Args:
             dictionary: Dictionary of values to merge into the current config.
@@ -121,7 +125,8 @@ class Config(Mapping):
         self._load_from_dict(updated_data)
 
     def update_from_yaml(self, path: str | Path, allow_extra: bool = False):
-        """Recursively update the configuration from a YAML file.
+        """Recursively update the configuration from a YAML file. Existing keys are
+        updated with new values, while new keys are added if allow_extra=True.
 
         Args:
             path: Path to the YAML configuration file.
@@ -148,6 +153,37 @@ class Config(Mapping):
         self.__dict__.clear()
         self._load_from_dict(updated_data)
 
+    def update_from_config(self, other: "Config", allow_extra: bool = False):
+        """Recursively update the configuration from another Config object.
+
+        Args:
+            other: Config object to merge into the current config.
+            allow_extra: If False, raises ValueError if other has keys not present in self.
+        """
+        self.update_from_dict(other.to_dict(), allow_extra=allow_extra)
+
+    def update_from(
+            self, 
+            source: str | Path | dict[str, Any] | "Config", 
+            allow_extra: bool = False
+            ):
+        """Recursively update the configuration from a source. Existing keys are updated with 
+        new values, while new keys are added if allow_extra=True.
+
+        Args:
+            source: Source to update from. Can be a YAML file path, dictionary, or Config object.
+            allow_extra: If False, raises ValueError if source has keys not present in self.
+        """
+        if isinstance(source, str | Path):
+            self.update_from_yaml(source, allow_extra=allow_extra)
+        elif isinstance(source, dict):
+            self.update_from_dict(source, allow_extra=allow_extra)
+        elif isinstance(source, Config):
+            self.update_from_config(source, allow_extra=allow_extra)
+        else:
+            raise ValueError(
+                "Source must be a YAML file path, dictionary, or Config object.")
+
     def save(self, path: str | Path):
         """Saves the current config state to a YAML file.
         
@@ -160,8 +196,6 @@ class Config(Mapping):
     def to_dict(self) -> dict[str, Any]:
         """Recursively converts the Config object back to a standard dictionary.
         
-        Required for YAML dumping.
-        
         Returns:
             dict: Standard dictionary representation of the config.
         """
@@ -173,7 +207,7 @@ class Config(Mapping):
                 result[key] = value
         return result
 
-    # --- Utilities ---
+    # --- Class Utilities ---
 
     @staticmethod
     def _validate_no_extra_keys(base: dict, update: dict, prefix=""):
@@ -200,7 +234,6 @@ class Config(Mapping):
     
     def copy(self):
         """Creates a deep copy of the Config object."""
-        # Now uses the factory method instead of init
         return Config._from_dict(deepcopy(self.to_dict()))
 
     def __repr__(self):
@@ -255,11 +288,9 @@ def get_target(target_str: str):
 
     If target_str is a registered shortcut, return it. Else, attempt to import it.
     """
-    # 1. Shortcut Lookup
     if target_str in SHORTCUTS:
         return SHORTCUTS[target_str]
     
-    # 2. Direct Import
     if "." in target_str:
         module_path, name = target_str.rsplit(".", 1)
         try:
@@ -276,63 +307,103 @@ def get_target(target_str: str):
     raise ValueError(
         f"Target '{target_str}' is not a registered shortcut and not a valid dot-path.")
 
-def instantiate(config, partial: bool | None = None):
-    """Recursively creates objects from a dictionary config.
+def instantiate(config: Config, partial: bool | None = None):
+    """Recursively creates objects from a given Config object. Objects to be instantiated must
+    have a '_target_' key specifying the class or function to create. The remaining keys are treated
+    as arguments to the target's constructor or factory function.
 
     Args:
-        config: The configuration object (Dict, List, or Config).
-        partial: If True, forces return of a partial. 
-              If False, forces instantiation. 
-              If None (default), respects the '_partial_' key in the config.
+        config: The configuration object.
+        partial: If True, forces return of a partial. That is, a factory function that can be 
+        called later to create the object. If False, forces instantiation. If None (default), 
+        respects the '_partial_' key in the config.
     
-    Special keywords:
+    Special keywords considered in the Config object:
     - _target_: The class or function to create.
     - _partial_: If True, returns a partial (factory) instead of an object.
     - _raw_: If True, returns the dictionary as-is (stops recursion).
-    - keys starting with "_": Treated as meta keys and ignored during instantiation.
+    - Other keys starting with "_": Treated as meta keys and ignored during instantiation.
     """
     
-    # 1. Handle Lists
+    # Handle lists
     if isinstance(config, list):
-        return [instantiate(item) for item in config]
+        return [instantiate(item) for item in config] # type: ignore
     
-    # 2. Handle Simple Values
+    # Handle simple values
     if not isinstance(config, Mapping):
         return config
 
-    # 3. Handle Raw Configs (Stop recursion)
-    # Works for both Config (via __getitem__) and dict
+    # Handle raw configs (stop recursion)
     if config.get("_raw_") is True:
         if hasattr(config, "to_dict"):
             clean = config.to_dict() 
         else:
-            clean = config.copy()
+            clean = config.copy() # type: ignore
         
         clean.pop("_raw_", None)
         return clean
 
-    # 4. Standard Recursion (without target)
+    # Standard recursion when no target is specified
     if "_target_" not in config:
         return {k: instantiate(v) for k, v in config.items()}
 
     # --- INSTANTIATION LOGIC ---
 
-    # A. Resolve Target
+    # Resolve Target
     target_str = config["_target_"]
     target = get_target(target_str)
 
-    # B. Build Arguments (FILTERING HAPPENS HERE)
+    # Build arguments filtering _* keys
     kwargs = {}
-    
-    # We iterate over items filtering _* keys
     for k, v in config.items():
         if not k.startswith("_"):
             kwargs[k] = instantiate(v)
             
-    # C. Check partial
+    # Check if partial
     should_be_partial = partial if partial is not None else config.get("_partial_", False)
     
     if should_be_partial:
         return functools_partial(target, **kwargs)
     else:
         return target(**kwargs)
+    
+def create_project():
+    """TODO: Create a new project base_config.yaml file."""
+
+    parser = argparse.ArgumentParser(prog="torchtrainer", description="torchtrainer CLI.")
+    subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
+    create_parser = subparsers.add_parser("create", help="Initialize a new project")
+
+    create_parser.add_argument(
+        "destination_path", 
+        type=str, 
+        help="Path to the folder where the project will be created."
+        )
+    
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit(1)
+
+    args = parser.parse_args()
+
+    if args.command == "create":
+        current_dir = Path(__file__).resolve().parent
+        cfg_path = current_dir / "base_config.yaml"
+
+        if not cfg_path.exists():
+            raise FileNotFoundError(f"Base config file not found at {cfg_path}.")
+        
+        destination = Path(args.destination_path).resolve()
+        if not destination.exists():
+            destination.mkdir(parents=True)
+
+        shutil.copy(cfg_path, destination / "base_config.yaml")
+        print(f"Project created at {destination} with base_config.yaml.")
+
+    else:
+        parser.print_help()
+        sys.exit(1)
+
+
+
+
