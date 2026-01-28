@@ -1,3 +1,5 @@
+"""Core classes for Venturi experiments."""
+
 import importlib
 import os
 import shutil
@@ -32,25 +34,31 @@ torch.set_float32_matmul_precision("high")
 class DataModule(pl.LightningDataModule):
     """Base DataModule which uses a dataset setup function defined in the config file."""
     def __init__(self, args: Config):
+        """Args:
+        args: Configuration dictionary.
+        """
         super().__init__()
         self.args = args
         # Dataset dictionary to hold train, val, test or predict datasets
         self.ds_dict: dict[str, torch.utils.data.Dataset] = {}
 
     def setup(self, stage=None):
+        """Setup datasets for different stages: 'fit', 'validate', 'test', or 'predict'."""
 
         args_l = self.args.logging
+        # We need to silence lightning and wandb here due to multiprocessing
         if args_l.silence_lightning:
             silence_lightning()
         if _has_wandb and args_l.wandb.silence_wandb:
             os.environ["WANDB_SILENT"] = "True"
 
-        # Call the function indicated in self.args.dataset.setup, passing the stage and args
+        # Call the function indicated in self.args.dataset.setup, passing the stage and args.
         # stage can be 'fit', 'validate', 'test', or 'predict'
         get_dataset = instantiate(self.args.dataset.setup, partial=True)
-        self.ds_dict = get_dataset(stage, self.args)
+        self.ds_dict = get_dataset(stage, self.args) 
 
     def train_dataloader(self):
+        """Returns the training DataLoader."""
         if "train_ds" not in self.ds_dict:
             return None
         return DataLoader(
@@ -59,6 +67,7 @@ class DataModule(pl.LightningDataModule):
             **self.args.dataset.train_dataloader)
 
     def val_dataloader(self):
+        """Returns the validation DataLoader."""
         if "val_ds" not in self.ds_dict:
             return None
         return DataLoader(
@@ -67,6 +76,7 @@ class DataModule(pl.LightningDataModule):
             **self.args.dataset.val_dataloader)
     
     def test_dataloader(self):
+        """Returns the test DataLoader."""
         if "test_ds" not in self.ds_dict:
             return None
         return DataLoader(
@@ -75,6 +85,7 @@ class DataModule(pl.LightningDataModule):
             **self.args.dataset.test_dataloader)
     
     def predict_dataloader(self):
+        """Returns the predict DataLoader."""
         if "predict_ds" not in self.ds_dict:
             return None
         return DataLoader(
@@ -83,7 +94,13 @@ class DataModule(pl.LightningDataModule):
             **self.args.dataset.predict_dataloader)
 
 class TrainingModule(pl.LightningModule):
+    """Base TrainingModule which uses model, loss and metric setup functions defined in the 
+    config file. The model is very close to a vanilla LightningModule.
+    """
     def __init__(self, args: Config):
+        """Args:
+        args: Configuration dictionary.
+        """
         super().__init__()
         self.args = args
 
@@ -102,9 +119,11 @@ class TrainingModule(pl.LightningModule):
         self.test_metrics = metrics.clone(prefix="test/")
 
     def forward(self, x):
+        """Forward pass through the model."""
         return self.model(x)
 
     def training_step(self, batch):
+        """Performs a training step."""
         x, y = batch
         logits = self(x)
         loss, loss_logs = self.train_loss(logits, y)
@@ -121,6 +140,7 @@ class TrainingModule(pl.LightningModule):
         return loss
 
     def validation_step(self, batch):
+        """Performs a validation step."""
         x, y = batch
         logits = self(x)
         loss, loss_logs = self.val_loss(logits, y)
@@ -135,6 +155,7 @@ class TrainingModule(pl.LightningModule):
         return loss
 
     def test_step(self, batch):
+        """Performs a test step."""
         x, y = batch
         logits = self(x)
 
@@ -143,9 +164,11 @@ class TrainingModule(pl.LightningModule):
         self.log_dict(output, on_step=False, on_epoch=True, prog_bar=False, batch_size=bs)
     
     def predict_step(self, batch):
+        """Performs a predict step."""
         return self(batch)
 
     def configure_optimizers(self):
+        """Configures optimizers and learning rate schedulers based on the config file."""
 
         args_t = self.args.training
         optimizer_factory = instantiate(args_t.optimizer, partial=True)
@@ -191,6 +214,9 @@ class TrainingModule(pl.LightningModule):
 class Experiment:
     """Main class to run experiments based on a configuration file."""
     def __init__(self, args: Config):
+        """Args:
+        args: Configuration object.
+        """
         self.args = args
         self.run_path = None
         self.model = None
@@ -205,7 +231,7 @@ class Experiment:
         """Handles the run_path name expansion and experiment directory creation logic as well 
         as lightning and wandb verbosity.
         """
-        args_l = self.args.logging  # type: ignore
+        args_l = self.args.logging  
 
         if args_l.silence_lightning:
             silence_lightning()
@@ -236,6 +262,7 @@ class Experiment:
         return DataModule(self.args)
 
     def get_model(self) -> TrainingModule:
+        """Override this for a different model logic (e.g.: multiple models)."""
         return TrainingModule(self.args)
 
     def get_loggers(self):
@@ -243,12 +270,15 @@ class Experiment:
 
         args_l = self.args.logging
         run_path = self.run_path
-        
+
+        if run_path is None:
+            raise ValueError("run_path must be set before setting loggers.")
+
         loggers: list[pl.loggers.LightningLoggerBase] = []
 
         if args_l.log_csv:
             loggers.append(
-                CSVLogger(save_dir=run_path, name="", version="")
+                CSVLogger(save_dir=run_path, name="", version="") 
             )
         
         args_w = args_l.wandb
@@ -272,6 +302,10 @@ class Experiment:
         
         extra_callbacks: passed from setup_trainer() (e.g. Optuna Pruning)
         """
+
+        if self.run_path is None:
+            raise ValueError("run_path must be set before setting callbacks.")
+
         args_l = self.args.logging
         args_t = self.args.training
         callbacks = extra_callbacks or []
@@ -342,6 +376,7 @@ class Experiment:
         return callbacks
 
     def get_profiler(self):
+        """Setup profiler based on config."""
 
         if not getattr(self.args.training, "profile", False):
             return None
@@ -375,6 +410,8 @@ class Experiment:
         return profiler
 
     def setup_trainer(self, extra_callbacks: list[Callback] | None = None) -> pl.Trainer:
+        """Sets up the PyTorch Lightning Trainer."""
+
 
         loggers = self.get_loggers()
         callbacks = self.get_callbacks(extra_callbacks)   
@@ -450,6 +487,15 @@ class Experiment:
             checkpoint: str | None = None,
             recreate_dataset: bool = False, 
             ):
+        """Test a model.
+
+        Args:
+            args_overrides: Dictionary to override args in self.args.
+            checkpoint: Name of the checkpoint to load from the self.run_path / "models" folder. 
+            It can also be "best" and "last", in which case ModelCheckpoint callbabks will be
+            used to load the corresponding model.
+            recreate_dataset: If True, recreates the data module. 
+        """
 
         if args_overrides is not None:
             self.args.update_from(args_overrides)
@@ -467,11 +513,11 @@ class Experiment:
         self.trainer = self.setup_trainer()        
 
         if checkpoint is not None:
-            checkpoint = self.run_path / "models" / checkpoint
+            checkpoint = self.run_path / "models" / checkpoint # type: ignore
         
         return self.trainer.test(
             self.model, datamodule=self.data_module, ckpt_path=checkpoint)
         
     def _set_seed(self):
 
-        pl.seed_everything(self.args.seed, workers=True, verbose=False) # type: ignore
+        pl.seed_everything(self.args.seed, workers=True, verbose=False) 

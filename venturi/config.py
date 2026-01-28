@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from copy import deepcopy
 from functools import partial as functools_partial
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch.nn as nn
 import torch.optim as optim
@@ -41,7 +41,7 @@ SHORTCUTS = {
     "Flatten": nn.Flatten,
 }
 
-class Config(Mapping):
+class _Config(Mapping):
     """A dynamic configuration class that behaves like a dictionary but 
     allows dot-notation access. It supports loading from YAML, 
     updating from another Config, and saving back to YAML.
@@ -283,6 +283,12 @@ class Config(Mapping):
     def __contains__(self, key):
         return hasattr(self, key)
 
+# Disable type checking for Config
+if TYPE_CHECKING:
+    Config = Any
+else:
+    Config = _Config
+
 def get_target(target_str: str):
     """Resolves a string to a Python class or function.
 
@@ -307,7 +313,7 @@ def get_target(target_str: str):
     raise ValueError(
         f"Target '{target_str}' is not a registered shortcut and not a valid dot-path.")
 
-def instantiate(config: Config, partial: bool | None = None):
+def instantiate(config: Config, partial: bool | None = None) -> Any:
     """Recursively creates objects from a given Config object. Objects to be instantiated must
     have a '_target_' key specifying the class or function to create. The remaining keys are treated
     as arguments to the target's constructor or factory function.
@@ -327,7 +333,7 @@ def instantiate(config: Config, partial: bool | None = None):
     
     # Handle lists
     if isinstance(config, list):
-        return [instantiate(item) for item in config] # type: ignore
+        return [instantiate(item) for item in config] 
     
     # Handle simple values
     if not isinstance(config, Mapping):
@@ -338,7 +344,7 @@ def instantiate(config: Config, partial: bool | None = None):
         if hasattr(config, "to_dict"):
             clean = config.to_dict() 
         else:
-            clean = config.copy() # type: ignore
+            clean = config.copy() 
         
         clean.pop("_raw_", None)
         return clean

@@ -56,7 +56,7 @@ class LossCollection(nn.Module):
 
         # Register components
         for name, config in cfg_loss.items():
-            self.loss_map[f"{prefix}{name}"] = instantiate(config["instance"])
+            self.loss_map[f"{prefix}{name}"] = instantiate(config["instance"]) 
             self.weights[f"{prefix}{name}"] = config["loss_weight"]
 
     def forward(self, input, target):

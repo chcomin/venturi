@@ -1,5 +1,6 @@
 _*
 .*
 !_*.py
-___*.py
+# Ignore python files starting with three underscores
+___*.py  
 *.pth

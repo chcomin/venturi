@@ -1,0 +1,19 @@
+name: venturi-dev
+
+channels:
+  - conda-forge
+dependencies:
+  - hatchling
+  - python=3.13
+  - pip
+  - pytorch::pytorch>=2.4.0
+  - pytorch::pytorch-cuda=12.1
+  - lightning>=2.4.0
+  - pyyaml
+  - jsonargparse
+  - pytest
+  - ruff
+  - mypy
+
+  - pip:
+    - --no-build-isolation --no-deps -e .
