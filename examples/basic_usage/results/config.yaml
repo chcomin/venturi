@@ -1,0 +1,138 @@
+seed: 0
+logging:
+  create_folder: true
+  run_path: results
+  overwrite_existing: true
+  log_csv: true
+  log_checkpoints: false
+  log_plot: true
+  log_training_time: true
+  enable_progress_bar: false
+  silence_lightning: true
+  log_every_n_steps: 4
+  save_model_every_n_epochs: 1
+  save_top_k_models: 1
+  plot:
+    left_plot:
+      metrics:
+      - train/loss
+      - val/loss
+      ylim:
+        min: 0.0
+        max: null
+    right_plot:
+      metrics:
+      - val/accuracy
+      - val/dice
+      - val/precision
+      - val/recall
+      ylim:
+        min: 0.0
+        max: 1.01
+  save_val_data: false
+  val_data_indices:
+  - 0
+  - 1
+  - 2
+  - 3
+  log_to_disk: false
+  wandb:
+    log_wandb: false
+    silence_wandb: true
+    wandb_project: baseline
+    wandb_group: null
+    log_val_data_wandb: false
+    class_labels:
+    - Background
+    - Foreground
+dataset:
+  setup:
+    _target_: scripts.synthetic_dataset.get_segmentation_dataset
+  train_dataloader:
+    batch_size: 8
+    shuffle: true
+    num_workers: 0
+    persistent_workers: false
+    pin_memory: true
+  val_dataloader:
+    batch_size: 8
+    shuffle: false
+    num_workers: 0
+    persistent_workers: false
+    pin_memory: true
+  params:
+    num_train_samples: 100
+    num_val_samples: 20
+    num_channels: 3
+    num_classes: 1
+    img_size:
+    - 64
+    - 64
+  train_transforms:
+    rrc:
+      _target_: torchvision.transforms.v2.RandomResizedCrop
+      size:
+      - 64
+      - 64
+      scale:
+      - 0.6
+      - 1.0
+      ratio:
+      - 0.75
+      - 1.33
+      antialias: true
+    rhf:
+      _target_: torchvision.transforms.v2.RandomHorizontalFlip
+      p: 0.5
+    rvf:
+      _target_: torchvision.transforms.v2.RandomVerticalFlip
+      p: 0.5
+  val_transforms: null
+model:
+  setup:
+    _target_: scripts.model.get_model
+  params:
+    num_input_channels: 3
+    num_classes: 1
+    base_filters: 16
+    num_layers: 4
+losses:
+  cross_entropy:
+    instance:
+      _target_: scripts.metrics.WeightedBCEWithLogitsLoss
+      weight:
+      - 1.0
+      - 1.0
+metrics:
+  _target_: scripts.metrics.binary_segmentation_metrics
+training:
+  optimizer:
+    _target_: torch.optim.SGD
+    lr: 0.01
+    momentum: 0.9
+    weight_decay: 0.0001
+  lr_scheduler:
+    instance:
+      _target_: torch.optim.lr_scheduler.PolynomialLR
+      power: 1.0
+    scheduler_config:
+      interval: step
+    needs_total_iters: true
+  trainer_params:
+    devices: 1
+    strategy: auto
+    precision: bf16-mixed
+    max_epochs: 10
+    accumulate_grad_batches: 1
+    gradient_clip_val: null
+    check_val_every_n_epoch: 1
+    deterministic: false
+    benchmark: false
+    kwargs: {}
+  validation_metric: val/loss
+  patience: null
+  maximize_validation_metric: false
+  divergence_threshold: null
+  profile: false
+  profile_verbosity: 0
+  monitor_device_stats: false

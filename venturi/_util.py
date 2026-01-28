@@ -4,6 +4,7 @@ import string
 import time
 import warnings
 from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +50,13 @@ class LossCollection(nn.Module):
         prefix: Prefix to add to the loss names in the logs.
         """
         super().__init__()
+
+        # If there is a single loss without weight, set its weight to 1.0
+        if len(cfg_loss) == 1:
+            name, config = next(iter(cfg_loss.items()))
+            if "loss_weight" not in config:
+                cfg_loss[name]["loss_weight"] = 1.0
+
         self.loss_map = nn.ModuleDict()
         self.cfg_loss = cfg_loss
         self.return_logs = return_logs
@@ -335,6 +343,25 @@ class TimeLoggerCallback(Callback):
             return
         epoch_time = time.time() - self.val_epoch_start
         pl_module.log("val/epoch_time", epoch_time, on_epoch=True)
+
+class TrainingTimeLoggerCallback(Callback):
+    """Logs the time taken for a complete training run."""
+
+    def __init__(self, run_path: str | Path):
+        super().__init__()
+        self.run_path = Path(run_path)
+
+    def on_train_start(self, trainer, pl_module):
+        now = datetime.now()
+        dt_string = now.strftime("%Y-%m-%d %H:%M:%S")
+        with open(self.run_path / "training_time.txt", "w") as f:
+            f.write(f"Training started at: {dt_string}\n")
+
+    def on_train_end(self, trainer, pl_module):
+        now = datetime.now()
+        dt_string = now.strftime("%Y-%m-%d %H:%M:%S")
+        with open(self.run_path / "training_time.txt", "a") as f:
+            f.write(f"Training ended at: {dt_string}\n")
 
 class LightningLogFilter(logging.Filter):
     """Filter for annoying Lightning messages."""

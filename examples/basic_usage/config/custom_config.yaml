@@ -1,0 +1,73 @@
+logging:
+  run_path: "results" 
+  plot:
+    left_plot:
+      metrics:
+        - "train/loss"
+        - "val/loss"
+      ylim: 
+        min: 0.0
+        max: null
+    right_plot:
+      metrics:
+        - "val/accuracy"
+        - "val/dice"
+        - "val/precision"
+        - "val/recall"
+      ylim: 
+        min: 0.0
+        max: 1.01
+
+dataset:
+  setup:
+    _target_: "scripts.synthetic_dataset.get_segmentation_dataset"
+  params:
+    num_train_samples: 100
+    num_val_samples: 20
+    num_channels: 3
+    num_classes: 1
+    img_size: [64, 64]
+  # Data augmentation and preprocessing transforms. They can be changed as needed.
+  train_transforms:
+    rrc:
+      _target_: torchvision.transforms.v2.RandomResizedCrop
+      size: [64, 64]
+      scale: [0.6, 1.0]
+      ratio: [0.75, 1.33]
+      antialias: true
+    rhf:
+      _target_: torchvision.transforms.v2.RandomHorizontalFlip
+      p: 0.5
+    rvf:
+      _target_: torchvision.transforms.v2.RandomVerticalFlip
+      p: 0.5
+  val_transforms:
+  train_dataloader:
+    batch_size: 8
+    shuffle: true
+    num_workers: 0
+    persistent_workers: false
+    pin_memory: true
+  val_dataloader:
+    batch_size: 8
+    shuffle: false
+    num_workers: 0
+    persistent_workers: false
+    pin_memory: true
+
+model:
+  setup:
+    _target_: scripts.model.get_model
+  params:
+    num_input_channels: 3
+    num_classes: 1  # 1 channel output for binary segmentation
+    base_filters: 16
+    num_layers: 4
+losses:
+  cross_entropy:
+    instance:
+      _target_: scripts.metrics.WeightedBCEWithLogitsLoss
+      weight: [1.0, 1.0]
+
+metrics:
+  _target_: scripts.metrics.binary_segmentation_metrics

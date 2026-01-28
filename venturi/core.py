@@ -16,7 +16,7 @@ from venturi._util import (
     ImageSaveCallback,
     LossCollection,
     PlottingCallback,
-    TimeLoggerCallback,
+    TrainingTimeLoggerCallback,
     delete_wandb_run,
     generate_name_from_config,
     get_next_experiment_name,
@@ -52,44 +52,37 @@ class DataModule(pl.LightningDataModule):
         if _has_wandb and args_l.wandb.silence_wandb:
             os.environ["WANDB_SILENT"] = "True"
 
-        # Call the function indicated in self.args.dataset.setup, passing the stage and args.
-        # stage can be 'fit', 'validate', 'test', or 'predict'
+        # Call the function indicated in self.args.dataset.setup, passing the args.
         get_dataset = instantiate(self.args.dataset.setup, partial=True)
-        self.ds_dict = get_dataset(stage, self.args) 
+        train_ds, other_ds = get_dataset(self.args) 
+        self.train_ds = train_ds
+        self.other_ds = other_ds
 
     def train_dataloader(self):
         """Returns the training DataLoader."""
-        if "train_ds" not in self.ds_dict:
-            return None
         return DataLoader(
-            self.ds_dict["train_ds"], 
+            self.train_ds, 
             generator=torch.Generator().manual_seed(self.args.seed),
             **self.args.dataset.train_dataloader)
 
     def val_dataloader(self):
         """Returns the validation DataLoader."""
-        if "val_ds" not in self.ds_dict:
-            return None
         return DataLoader(
-            self.ds_dict["val_ds"], 
+            self.other_ds, 
             generator=torch.Generator().manual_seed(self.args.seed),
             **self.args.dataset.val_dataloader)
     
     def test_dataloader(self):
         """Returns the test DataLoader."""
-        if "test_ds" not in self.ds_dict:
-            return None
         return DataLoader(
-            self.ds_dict["test_ds"],
+            self.other_ds,
             generator=torch.Generator().manual_seed(self.args.seed),
             **self.args.dataset.test_dataloader)
     
     def predict_dataloader(self):
         """Returns the predict DataLoader."""
-        if "predict_ds" not in self.ds_dict:
-            return None
         return DataLoader(
-            self.ds_dict["predict_ds"], 
+            self.other_ds, 
             generator=torch.Generator().manual_seed(self.args.seed),
             **self.args.dataset.predict_dataloader)
 
@@ -226,7 +219,6 @@ class Experiment:
 
         self.data_module = self.get_data_module()
 
-    
     def setup_logging(self, stage: str = "fit") -> Path:
         """Handles the run_path name expansion and experiment directory creation logic as well 
         as lightning and wandb verbosity.
@@ -313,9 +305,10 @@ class Experiment:
         # Device Stats Monitor
         if args_t.monitor_device_stats:
             callbacks.append(DeviceStatsMonitor(cpu_stats=True))
-
-        if args_l.log_csv or args_l.wandb.log_wandb:
-            callbacks.append(TimeLoggerCallback())
+        
+        # Training Time Logger
+        if args_l.log_training_time:
+            callbacks.append(TrainingTimeLoggerCallback(self.run_path))
         
         # Custom Visualization & Plotting
         if args_l.save_val_data:

@@ -2,6 +2,7 @@
 
 import argparse
 import importlib
+import inspect
 import shutil
 import sys
 from collections.abc import Mapping
@@ -95,7 +96,7 @@ class Config(Mapping):
             
             setattr(self, key, value)
 
-    def update_from_dict(self, dictionary: dict[str, Any], allow_extra: bool = False):
+    def update_from_dict(self, dictionary: dict[str, Any], allow_extra: bool = True):
         """Recursively update the configuration using the given dictionary. Existing keys are
         updated with new values, while new keys are added if allow_extra=True.
 
@@ -124,7 +125,7 @@ class Config(Mapping):
         self.__dict__.clear()
         self._load_from_dict(updated_data)
 
-    def update_from_yaml(self, path: str | Path, allow_extra: bool = False):
+    def update_from_yaml(self, path: str | Path, allow_extra: bool = True):
         """Recursively update the configuration from a YAML file. Existing keys are
         updated with new values, while new keys are added if allow_extra=True.
 
@@ -153,7 +154,7 @@ class Config(Mapping):
         self.__dict__.clear()
         self._load_from_dict(updated_data)
 
-    def update_from_config(self, other: Self, allow_extra: bool = False):
+    def update_from_config(self, other: Self, allow_extra: bool = True):
         """Recursively update the configuration from another Config object.
 
         Args:
@@ -165,7 +166,7 @@ class Config(Mapping):
     def update_from(
             self, 
             source: str | Path | dict[str, Any] | Self, 
-            allow_extra: bool = False
+            allow_extra: bool = True
             ):
         """Recursively update the configuration from a source. Existing keys are updated with 
         new values, while new keys are added if allow_extra=True.
@@ -283,30 +284,47 @@ class Config(Mapping):
     def __contains__(self, key):
         return hasattr(self, key)
 
-def get_target(target_str: str):
-    """Resolves a string to a Python class or function.
-
-    If target_str is a registered shortcut, return it. Else, attempt to import it.
-    """
-    if target_str in SHORTCUTS:
-        return SHORTCUTS[target_str]
+def get_target(target_str: str) -> Any:
+    """Resolves a string to a Python class or function."""
     
     if "." in target_str:
+        # If a dotted path, import the module and get the object using getattr
         module_path, name = target_str.rsplit(".", 1)
         try:
             module = importlib.import_module(module_path)
         except ImportError as e:
-            raise ImportError(
-                f"Could not import module '{module_path}' for target '{target_str}'") from e
+            raise ImportError(f"Could not import module '{module_path}'") from e
+
         try:
-            obj = getattr(module, name)
+            return getattr(module, name)
         except AttributeError as e:
             raise AttributeError(f"Module '{module_path}' has no attribute '{name}'") from e
-        return obj
-    
-    raise ValueError(
-        f"Target '{target_str}' is not a registered shortcut and not a valid dot-path.")
 
+    # target_str is not a dotted path, we need to search for it on stack frames
+    frame = inspect.currentframe()
+    try:
+        while frame:
+            # Check locals
+            if target_str in frame.f_locals:
+                return frame.f_locals[target_str]
+                
+            # Check globals
+            if target_str in frame.f_globals:
+                return frame.f_globals[target_str]
+            
+            frame = frame.f_back            
+    finally:
+        del frame
+    
+    # Check Shortcuts. We do this after stack frames to allow user overrides. But it can
+    # have side effects in case the user has a local/global variable with the same name as 
+    # a shortcut.
+    if target_str in SHORTCUTS:
+        return SHORTCUTS[target_str]
+    
+    raise NameError(f"Object '{target_str}' not found. Is the name correct and in scope?")
+
+    
 def instantiate(config: Config, partial: bool | None = None) -> Any:
     """Recursively creates objects from a given Config object. Objects to be instantiated must
     have a '_target_' key specifying the class or function to create. The remaining keys are treated
