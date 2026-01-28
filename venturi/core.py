@@ -10,7 +10,7 @@ from pytorch_lightning.loggers import CSVLogger, WandbLogger
 from pytorch_lightning.profilers import PyTorchProfiler
 from torch.utils.data import DataLoader
 
-from torchtrainer._util import (
+from venturi._util import (
     ImageSaveCallback,
     LossCollection,
     PlottingCallback,
@@ -20,7 +20,7 @@ from torchtrainer._util import (
     get_next_experiment_name,
     silence_lightning,
 )
-from torchtrainer.config import Config, instantiate
+from venturi.config import Config, instantiate
 
 if importlib.util.find_spec("wandb") is None:
     _has_wandb = False
@@ -83,7 +83,7 @@ class DataModule(pl.LightningDataModule):
             **self.args.dataset.predict_dataloader)
 
 class TrainingModule(pl.LightningModule):
-    def __init__(self, args):
+    def __init__(self, args: Config):
         super().__init__()
         self.args = args
 

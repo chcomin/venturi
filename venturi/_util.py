@@ -15,7 +15,7 @@ from pytorch_lightning.callbacks import Callback
 from pytorch_lightning.loggers import WandbLogger
 from torch import nn
 
-from torchtrainer.config import Config, instantiate
+from venturi.config import Config, instantiate
 
 try:
     import wandb

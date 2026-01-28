@@ -370,7 +370,7 @@ def instantiate(config: Config, partial: bool | None = None):
 def create_project():
     """TODO: Create a new project base_config.yaml file."""
 
-    parser = argparse.ArgumentParser(prog="torchtrainer", description="torchtrainer CLI.")
+    parser = argparse.ArgumentParser(prog="venturi", description="Venturi CLI.")
     subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
     create_parser = subparsers.add_parser("create", help="Initialize a new project")
 

@@ -3,12 +3,12 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "torchtrainer"
-version = "2.0"
+name = "venturi"
+version = "0.5"
 authors = [
   { name="Cesar Comin"},
 ]
-description = "Helper modules and a training script for working with neural networks with Pytorch."
+description = "A hackable blueprint for training neural networks using PyTorch and Lightning."
 readme = "README.md"
 requires-python = ">=3.7"
 classifiers = [
@@ -16,13 +16,13 @@ classifiers = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/chcomin/torchtrainer"
+"Homepage" = "https://github.com/chcomin/venturi"
 
 [tool.setuptools]
-packages = ["torchtrainer"]
+packages = ["venturi"]
 
 [project.scripts]
-torchtrainer = torchtrainer.config:create_project"
+venturi = venturi.config:create_project"
 
 [tool.setuptools.package-data]
 my_package = ["base_config.yaml"]
