@@ -384,7 +384,8 @@ class Experiment:
         verbosity = getattr(self.args.training, "profile_verbosity", 0)
 
         if verbosity >= 5:
-            experimental_config = torch.profiler._ExperimentalConfig(
+            # TODO: check if this works
+            experimental_config = torch.profiler._ExperimentalConfig( # type: ignore
                 verbose=True,
                 profiler_metrics=[
                     "kineto__cuda_core_occupancy", # GPU occupancy
