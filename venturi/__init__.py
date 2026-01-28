@@ -1,3 +1,5 @@
+from typing import Any
+
 from venturi.config import Config, instantiate
 from venturi.core import DataModule, Experiment, TrainingModule
 
@@ -11,3 +13,5 @@ __all__ = [
     "__version__",
     "instantiate",
 ]
+
+type VenturiConfig = Any

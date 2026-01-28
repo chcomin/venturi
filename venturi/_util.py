@@ -355,6 +355,11 @@ def silence_lightning():
     warnings.filterwarnings("ignore", module="lightning")
     warnings.filterwarnings("ignore", message=".*does not have many workers.*")
     warnings.filterwarnings("ignore", ".*The number of training batches.*")
+    warnings.filterwarnings(
+        "ignore", 
+        message=".*isinstance.treespec, LeafSpec. is deprecated.*", 
+        category=FutureWarning
+    )
 
     lightning_filter = LightningLogFilter()
     

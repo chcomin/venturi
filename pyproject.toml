@@ -40,7 +40,7 @@ Homepage = "https://github.com/chcomin/venturi"
 Repository = "https://github.com/chcomin/venturi"
 
 [project.scripts]
-venturi = "venturi.config:create_project"
+venturi = "venturi.config:create_config"
 
 [project.optional-dependencies]
 dev = [

@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from copy import deepcopy
 from functools import partial as functools_partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any, Self
 
 import torch.nn as nn
 import torch.optim as optim
@@ -41,7 +41,7 @@ SHORTCUTS = {
     "Flatten": nn.Flatten,
 }
 
-class _Config(Mapping):
+class Config(Mapping):
     """A dynamic configuration class that behaves like a dictionary but 
     allows dot-notation access. It supports loading from YAML, 
     updating from another Config, and saving back to YAML.
@@ -67,7 +67,7 @@ class _Config(Mapping):
                 "Config can only be initialized from a YAML file path or a dictionary.")
 
     @classmethod
-    def _from_dict(cls, dictionary: dict[str, Any]) -> "Config":
+    def _from_dict(cls, dictionary: dict[str, Any]) -> Self:
         """Internal factory to create a Config instance from a dictionary.
         
         Args:
@@ -153,7 +153,7 @@ class _Config(Mapping):
         self.__dict__.clear()
         self._load_from_dict(updated_data)
 
-    def update_from_config(self, other: "Config", allow_extra: bool = False):
+    def update_from_config(self, other: Self, allow_extra: bool = False):
         """Recursively update the configuration from another Config object.
 
         Args:
@@ -164,7 +164,7 @@ class _Config(Mapping):
 
     def update_from(
             self, 
-            source: str | Path | dict[str, Any] | "Config", 
+            source: str | Path | dict[str, Any] | Self, 
             allow_extra: bool = False
             ):
         """Recursively update the configuration from a source. Existing keys are updated with 
@@ -283,12 +283,6 @@ class _Config(Mapping):
     def __contains__(self, key):
         return hasattr(self, key)
 
-# Disable type checking for Config
-if TYPE_CHECKING:
-    Config = Any
-else:
-    Config = _Config
-
 def get_target(target_str: str):
     """Resolves a string to a Python class or function.
 
@@ -333,7 +327,7 @@ def instantiate(config: Config, partial: bool | None = None) -> Any:
     
     # Handle lists
     if isinstance(config, list):
-        return [instantiate(item) for item in config] 
+        return [instantiate(item) for item in config] # type: ignore
     
     # Handle simple values
     if not isinstance(config, Mapping):
@@ -373,17 +367,17 @@ def instantiate(config: Config, partial: bool | None = None) -> Any:
     else:
         return target(**kwargs)
     
-def create_project():
-    """TODO: Create a new project base_config.yaml file."""
+def create_config():
+    """CLI to create a new Venturi configuration file."""
 
     parser = argparse.ArgumentParser(prog="venturi", description="Venturi CLI.")
     subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
-    create_parser = subparsers.add_parser("create", help="Initialize a new project")
+    create_parser = subparsers.add_parser("create", help="Create a new configuration file.")
 
     create_parser.add_argument(
         "destination_path", 
         type=str, 
-        help="Path to the folder where the project will be created."
+        help="Path to the folder where the configuration file will be saved."
         )
     
     if len(sys.argv) == 1:
@@ -404,7 +398,7 @@ def create_project():
             destination.mkdir(parents=True)
 
         shutil.copy(cfg_path, destination / "base_config.yaml")
-        print(f"Project created at {destination} with base_config.yaml.")
+        print(f"Configuration file created at {destination} with name base_config.yaml.")
 
     else:
         parser.print_help()

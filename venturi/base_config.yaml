@@ -69,9 +69,15 @@ logging:
    
 dataset:
   setup:
-    # Function that returns the train, val and/or test and prediction dataset objects
-    # The function receives as input this yaml file. Thus, it has access to all configuraiton parameters.
-    _target_: "torchtrainer.data.reference_dataset.get_segmentation_dataset"
+    # Function that returns the trainining and validation datasets. It can optionally return test
+    # and predict datasets as well. The function signature must be function(stage, args). stage 
+    # can be "fit", "validate", "test" or "predict" and can be ignored if only fit is called 
+    # (i.e. training and validating). args is an object 
+    # containing all parameters in this yaml file. The function must return a dictionary in the format
+    # {"train_ds": train_ds, "val_ds": val_ds, "test_ds": test_ds, "predict_ds": predict_ds}.
+    # It only needs to return the datasets that are actually used. For instance, if only training
+    # and validation are done, only "train_ds" and "val_ds" need to be returned.
+    _target_: <dot.path.to.function>  # Change this!!
   params:
     # Parameters for dataset creation. You can add or remove parameters as needed and access 
     # them in the dataset creation function.
@@ -124,7 +130,7 @@ losses:
   # of each loss in the final combined loss.
   cross_entropy:
     instance:
-      _target_: torchtrainer.metrics.losses.WeightedBCEWithLogitsLoss
+      _target_: metrics.WeightedBCEWithLogitsLoss
       weight: [1.0, 1.0]
     loss_weight: 1.0
 
@@ -133,7 +139,7 @@ metrics:
   # The function receives as input this yaml file. 
   # The metrics are not as flexible as the losses (being able to define each of them in this yaml file)
   # because metrics are rarely hyperparameters to tune. 
-  _target_: torchtrainer.engine.metrics.binary_segmentation_metrics
+  _target_: metrics.binary_segmentation_metrics
 
 training:
   # Optimizer class and respective parameters
