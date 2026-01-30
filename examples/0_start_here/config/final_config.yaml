@@ -1,0 +1,23 @@
+dataset:
+  setup:
+    _target_: MyDataset
+  params:
+    num_train_samples: 100
+    num_val_samples: 20
+    num_classes: 10
+    img_size:
+    - 224
+    - 224
+model:
+  setup:
+    _target_: MyViTModel
+  params:
+    num_input_channels: 3
+    num_classes: 10
+    hidden_size: 2048
+    patch_size: 16
+    num_attention_heads: 36
+losses:
+  cross_entropy:
+    instance:
+      _target_: scripts.metrics.WeightedBCEWithLogitsLoss

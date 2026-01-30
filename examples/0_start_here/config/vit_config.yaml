@@ -1,0 +1,9 @@
+model:
+  setup:
+    _target_: MyViTModel
+  params:
+    num_input_channels: 3
+    num_classes: 10
+    hidden_size: 768
+    patch_size: 16
+    num_attention_heads: 12

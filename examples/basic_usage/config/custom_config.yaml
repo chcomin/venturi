@@ -60,7 +60,7 @@ model:
     _target_: scripts.model.get_model
   params:
     num_input_channels: 3
-    num_classes: 1  # 1 channel output for binary segmentation
+    num_output_channels: 1  # 1 channel output for binary segmentation
     base_filters: 16
     num_layers: 4
 losses:
@@ -70,4 +70,5 @@ losses:
       weight: [1.0, 1.0]
 
 metrics:
-  _target_: scripts.metrics.binary_segmentation_metrics
+  setup:
+    _target_: scripts.metrics.binary_segmentation_metrics

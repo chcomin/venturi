@@ -1,3 +1,0 @@
-data:
-  batch_size: 32
-  path: "./data/cats"

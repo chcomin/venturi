@@ -1,0 +1,24 @@
+dataset:
+  setup:
+    _target_: "MyDataset"
+  params:
+    num_train_samples: 100
+    num_val_samples: 20
+    num_classes: 10
+    img_size: [224, 224]
+
+model:
+  setup:
+    _target_: MyCNNModel
+  params:
+    num_input_channels: 3
+    num_classes: 10
+    base_filters: 128
+    num_layers: 50
+    kernel_size: 3
+
+losses:
+  cross_entropy:
+    instance:
+      _target_: scripts.metrics.WeightedBCEWithLogitsLoss
+

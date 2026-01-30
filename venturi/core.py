@@ -105,7 +105,7 @@ class TrainingModule(pl.LightningModule):
         self.val_loss = loss_fn.clone(prefix="val/")
         
         # Performance Metrics
-        get_metrics = instantiate(self.args.metrics, partial=True)
+        get_metrics = instantiate(self.args.metrics.setup, partial=True)
         metrics = get_metrics(self.args)
         self.train_metrics = metrics.clone(prefix="train/")
         self.val_metrics = metrics.clone(prefix="val/")
@@ -210,6 +210,10 @@ class Experiment:
         """Args:
         args: Configuration object.
         """
+
+        # Check if dataset, model and metrics were changed from the default <dot.path.to.function>
+        self._check_if_defined(args)
+        
         self.args = args
         self.run_path = None
         self.model = None
@@ -515,3 +519,15 @@ class Experiment:
     def _set_seed(self):
 
         pl.seed_everything(self.args.seed, workers=True, verbose=False) 
+
+    def _check_if_defined(self, args: Config):
+        """Check if dataset, model and metrics were changed from the default
+        <dot.path.to.function>.
+        """
+
+        if args.dataset.setup._target_ == "<dot.path.to.function>":
+            raise ValueError("Dataset setup function is not defined in the configuration.")
+        if args.model.setup._target_ == "<dot.path.to.function>":
+            raise ValueError("Model setup function is not defined in the configuration.")
+        if args.metrics.setup._target_ == "<dot.path.to.function>":
+            raise ValueError("Metrics function is not defined in the configuration.")

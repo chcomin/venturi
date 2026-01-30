@@ -1,0 +1,1 @@
+The notebook in this folder shows how to use the Config class and the instantiate function to create arbitrary Python objects from a yaml or dictionary.

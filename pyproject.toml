@@ -20,16 +20,13 @@ classifiers = [
 
 dependencies = [
     "torch>=2.9.1",           # Conda requires pytorch-gpu
-    "torchvision>=0.24.1",
     "lightning>=2.6.0",
     "torchmetrics>=1.8.2",
     "numpy>=2.3.5",
     "pandas>=3.0.0",
     "matplotlib>=3.10.8",
-    "wandb>=0.23.1",
     "tqdm>=4.67.1",
     "PyYAML>=6.0.3",
-    "optuna>=4.7.0",
     "Pillow>=12.1.0",
 ]
 
@@ -51,6 +48,11 @@ dev = [
     "ruff>=0.4.0",         
     "twine>=5.0",        
     "build>=1.2",        
+]
+examples = [
+    "optuna>=4.7.0",
+    "torchvision>=0.24.1",
+    "wandb>=0.23.1",
 ]
 
 [tool.hatch.version]

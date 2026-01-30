@@ -3,3 +3,5 @@ This example shows a basic usage of venturi for training an image segmentation m
 - scripts folder: Contains the definition of the dataset, the model and the performance metrics used for segmentation.
 - config folder: Contains the base configuration file from venturi and the custom configuration parameters of the dataset, model, and metrics.
 - experiment.py: Entry point of the experiment.
+
+The torchvision package is required to run the scripts.

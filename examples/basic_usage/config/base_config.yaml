@@ -114,7 +114,8 @@ metrics:
   # The function receives as input this yaml file. See the examples in the venturi repository.
   # The metrics are not as flexible as the losses (being able to define each of them in this yaml file)
   # because metrics are rarely hyperparameters to tune. 
-  _target_: <dot.path.to.function>  # Change this!!
+  setup:
+    _target_: <dot.path.to.function>  # Change this!!
 
 training:
   # Optimizer class and respective parameters

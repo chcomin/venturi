@@ -26,7 +26,7 @@ def get_model(args: Config) -> nn.Module:
         layers.extend([
             stage(args_p.base_filters, args_p.base_filters)
         ])
-    layers.append(stage(args_p.base_filters, args_p.num_classes))
+    layers.append(stage(args_p.base_filters, args_p.num_output_channels))
 
     model = nn.Sequential(*layers)
 

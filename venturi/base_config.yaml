@@ -81,7 +81,7 @@ dataset:
   #num_train_samples: 100
   #num_classes: 10
   #img_size: [224, 224]
-  # Parameters for the data loaders
+  # Parameters for the data loaders.
   train_dataloader:
     batch_size: 8
     shuffle: true
@@ -116,7 +116,8 @@ metrics:
   # The function receives as input this yaml file. See the examples in the venturi repository.
   # The metrics are not as flexible as the losses (being able to define each of them in this
   # yaml file) because metrics are rarely hyperparameters to tune. 
-  _target_: <dot.path.to.function>  # Change this!!
+  setup:
+    _target_: <dot.path.to.function>  # Change this!!
 
 training:
   # Optimizer class and respective parameters
