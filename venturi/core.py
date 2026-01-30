@@ -211,8 +211,7 @@ class Experiment:
         args: Configuration object.
         """
 
-        # Check if dataset, model and metrics were changed from the default <dot.path.to.function>
-        self._check_if_defined(args)
+        self._check_args(args)
         
         self.args = args
         self.run_path = None
@@ -319,10 +318,10 @@ class Experiment:
             callbacks.append(ImageSaveCallback(
                 self.run_path, 
                 args_l.val_data_indices, 
-                log_disk=args_l.log_to_disk,
+                log_disk=args_l.log_val_data_to_disk,
                 mean=getattr(args_l, "dataset_mean", None),
                 std=getattr(args_l, "dataset_std", None),
-                log_wandb=args_l.wandb.log_wandb and args_l.wandb.log_val_data_wandb,
+                log_wandb=args_l.wandb.log_wandb and args_l.wandb.log_val_data_to_wandb,
                 class_labels=args_l.wandb.class_labels
                 ))
 
@@ -520,10 +519,8 @@ class Experiment:
 
         pl.seed_everything(self.args.seed, workers=True, verbose=False) 
 
-    def _check_if_defined(self, args: Config):
-        """Check if dataset, model and metrics were changed from the default
-        <dot.path.to.function>.
-        """
+    def _check_args(self, args: Config):
+        """Do some checks on the args to avoid misconfigurations."""
 
         if args.dataset.setup._target_ == "<dot.path.to.function>":
             raise ValueError("Dataset setup function is not defined in the configuration.")
@@ -531,3 +528,21 @@ class Experiment:
             raise ValueError("Model setup function is not defined in the configuration.")
         if args.metrics.setup._target_ == "<dot.path.to.function>":
             raise ValueError("Metrics function is not defined in the configuration.")
+        
+        args_l = args.logging
+        has_log = any([
+            args_l.log_csv, 
+            args_l.log_checkpoints, 
+            args_l.log_plot, 
+            args_l.log_training_time,
+            args_l.save_val_data, 
+            # Decided to not include wandb here since any logging to wandb requires folder
+            # creation. It may happen that a user does not want any local logging, but wants to 
+            # log to wandb. This cannot be done without creating a local folder.
+        ])
+        if has_log and not args_l.create_folder:
+            raise ValueError("You enabled a logger but create_folder is False.")
+
+        log_val = args_l.log_val_data_to_disk or args_l.wandb.log_val_data_to_wandb
+        if args_l.save_val_data and not log_val:
+            raise ValueError("You need to log to disk or wandb if save_val_data is True.")

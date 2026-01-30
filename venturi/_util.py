@@ -112,7 +112,10 @@ class PlottingCallback(Callback):
                 f"Metrics file not found: {metrics_file}. Maybe you forgot to enable CSVLogger?")
 
         try:
-            df = pd.read_csv(metrics_file)
+            try:
+                df = pd.read_csv(metrics_file)
+            except pd.errors.EmptyDataError:
+                return
             
             fig, ax = plt.subplots(1, 2, figsize=(15, 5))
             
@@ -199,6 +202,11 @@ class ImageSaveCallback(Callback):
     def on_validation_batch_end(
             self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0):
 
+        if trainer.world_size > 1 and trainer.global_rank != 0:
+            # Only the main process logs images in multi-GPU training, which will miss some 
+            # indices but avoids complications.
+            return 
+
         inputs, targets = batch
         batch_size = inputs.size(0)
         start_idx = batch_idx * batch_size
@@ -231,8 +239,20 @@ class ImageSaveCallback(Callback):
            
             # Denormalize image if necessary
             if self.mean is not None and self.std is not None:
-                std = torch.tensor(self.std).view(-1, 1, 1)
-                mean = torch.tensor(self.mean).view(-1, 1, 1)
+                mean = torch.as_tensor(self.mean, device=img_prep.device)
+                std = torch.as_tensor(self.std, device=img_prep.device)
+                if mean.ndim == 0:
+                    mean = mean.view(1, 1, 1)
+                else:
+                    mean = mean.view(-1, 1, 1)
+                    
+                if std.ndim == 0:
+                    std = std.view(1, 1, 1)
+                else:
+                    std = std.view(-1, 1, 1)
+                if img_prep.shape[0] == 1 and (mean.shape[0] > 1 or std.shape[0] > 1):
+                    raise ValueError("Image has 1 channel but mean and std have multiple values.")
+                
                 img_prep = img_prep * std + mean
 
             # Convert to HWC and scale to [0,255]
@@ -398,8 +418,9 @@ def silence_lightning():
     for logger_name in logging.Logger.manager.loggerDict:
         if "lightning" in logger_name:
             logger = logging.getLogger(logger_name)
-            logger.addFilter(lightning_filter)
-            logger.setLevel(logging.ERROR)    
+            if isinstance(logger, logging.Logger):
+                logger.addFilter(lightning_filter)
+                logger.setLevel(logging.ERROR)    
 
 def find_key_recursive(data: Config, target_key: str) -> Any:
     """Recursively searches for a key in a nested dictionary.

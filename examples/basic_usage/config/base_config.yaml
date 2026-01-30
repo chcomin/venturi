@@ -56,7 +56,7 @@ logging:
   # Indices of validation data samples to save
   val_data_indices: [0, 1, 2, 3]
   # When save_val_data is true, log validation images to disk
-  log_to_disk: false
+  log_val_data_to_disk: false
   wandb:
     # Enable/disable wandb logging. All metrics will be send to wandb if true.
     log_wandb: false
@@ -65,8 +65,8 @@ logging:
     wandb_project: "baseline"
     wandb_group: 
     # When save_val_data and log_wandb are true, validation images can also be logged to wandb
-    log_val_data_wandb: false
-    # Names to use for masks in wandb UI when log_val_data_wandb is true
+    log_val_data_to_wandb: false
+    # Names to use for masks in wandb UI when log_val_data_to_wandb is true
     class_labels: ["Background", "Foreground"]
    
 dataset:
