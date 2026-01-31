@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-fancy-pypi-readme"]
 build-backend = "hatchling.build"
 
 [project]
@@ -74,6 +74,24 @@ include = [
     "LICENSE",
     "ruff.toml",
 ]
+
+# Beginning of hatchling hack to change folder and image links to raw urls for PyPI.
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "readme.md"
+
+# Handle Images (Convert to GitHub 'raw' links)
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '!\[(.*?)\]\(((?!https?://)\S+?\.(?:png|jpg|jpeg|gif|svg))\)'
+replacement = '![\1](https://github.com/chcomin/venturi/raw/master/\2)'
+
+# Handle Folder/File Links (Convert to GitHub 'tree' links)
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '\[(.+?)\]\(((?!https?://)(?!\S+?\.(?:png|jpg|jpeg|gif|svg))\S+?)\)'
+replacement = '[\1](https://github.com/chcomin/venturi/tree/master/\2)'
+#### end of hack
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
