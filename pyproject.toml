@@ -48,7 +48,7 @@ dev = [
     "types-PyYAML",
     "ruff>=0.4.0",         
     "twine>=5.0",        
-    "build>=1.2",        
+    "build>=1.4",        
 ]
 examples = [
     "optuna>=4.7.0",
