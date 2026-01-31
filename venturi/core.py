@@ -19,7 +19,7 @@ from venturi._util import (
     TrainingTimeLoggerCallback,
     delete_wandb_run,
     generate_name_from_config,
-    get_next_experiment_name,
+    get_next_name,
     is_rank_zero,
     silence_lightning,
 )
@@ -44,7 +44,11 @@ class DataModule(pl.LightningDataModule):
         self.ds_dict: dict[str, torch.utils.data.Dataset] = {}
 
     def setup(self, stage=None):
-        """Setup datasets for different stages: 'fit', 'validate', 'test', or 'predict'."""
+        """Setup datasets for different stages.
+        
+        Args:
+            stage: One of 'fit', 'validate', 'test', or 'predict'. 
+        """
 
         args_l = self.args.logging
         # We need to silence lightning and wandb here due to multiprocessing
@@ -58,37 +62,42 @@ class DataModule(pl.LightningDataModule):
 
         # Call the function indicated in self.args.dataset.setup, passing the args.
         get_dataset = instantiate(self.args.dataset.setup, partial=True)
-        train_ds, other_ds = get_dataset(self.args) 
-        self.train_ds = train_ds
-        self.other_ds = other_ds
+        datasets = get_dataset(self.args) 
 
+        # Check if the returned datasets are correct
+        if stage == "fit" or stage is None:
+            if len(datasets) != 2:
+                raise ValueError(
+                    "The dataset setup function must return a train and validation dataset for "
+                    "training")
+            self.train_ds = datasets[0]
+            self.val_ds = datasets[1]
+        elif stage == "test" or stage == "predict":
+            if not isinstance(datasets, torch.utils.data.Dataset):
+                raise ValueError(
+                    "The dataset setup function must return a Pytorch Dataset for testing or "
+                    "predicting")
+            self.test_ds = datasets
+        
     def train_dataloader(self):
         """Returns the training DataLoader."""
-        return DataLoader(
-            self.train_ds, 
-            generator=self.generator,
-            **self.args.dataset.train_dataloader)
+        dl = instantiate(self.args.dataset.train_dataloader, partial=True)
+        return dl(self.train_ds, generator=self.generator)
 
     def val_dataloader(self):
         """Returns the validation DataLoader."""
-        return DataLoader(
-            self.other_ds, 
-            generator=self.generator,
-            **self.args.dataset.val_dataloader)
+        dl = instantiate(self.args.dataset.val_dataloader, partial=True)
+        return dl(self.val_ds, generator=self.generator)
     
     def test_dataloader(self):
         """Returns the test DataLoader."""
-        return DataLoader(
-            self.other_ds,
-            generator=self.generator,
-            **self.args.dataset.test_dataloader)
+        dl = instantiate(self.args.dataset.test_dataloader, partial=True)
+        return dl(self.test_ds, generator=self.generator)
     
     def predict_dataloader(self):
         """Returns the predict DataLoader."""
-        return DataLoader(
-            self.other_ds, 
-            generator=self.generator,
-            **self.args.dataset.predict_dataloader)
+        dl = instantiate(self.args.dataset.predict_dataloader, partial=True)
+        return dl(self.test_ds, generator=self.generator)
 
 class TrainingModule(pl.LightningModule):
     """Base TrainingModule which uses model, loss and metric setup functions defined in the 
@@ -111,7 +120,6 @@ class TrainingModule(pl.LightningModule):
         # Performance Metrics
         get_metrics = instantiate(self.args.metrics.setup, partial=True)
         metrics = get_metrics(self.args)
-        self.train_metrics = metrics.clone(prefix="train/")
         self.val_metrics = metrics.clone(prefix="val/")
         self.test_metrics = metrics.clone(prefix="test/")
 
@@ -131,9 +139,6 @@ class TrainingModule(pl.LightningModule):
         if len(loss_logs) > 1:
             self.log_dict(loss_logs, on_step=False, on_epoch=True, prog_bar=False, batch_size=bs)
 
-        output = self.train_metrics(logits, y)
-        self.log_dict(output, on_step=False, on_epoch=True, prog_bar=False, batch_size=bs)
-
         return loss
 
     def validation_step(self, batch):
@@ -149,7 +154,9 @@ class TrainingModule(pl.LightningModule):
 
         output = self.val_metrics(logits, y)
         self.log_dict(output, on_step=False, on_epoch=True, prog_bar=False, batch_size=bs)
-        return loss
+
+        # Return logits for plotting callbacks
+        return {"loss": loss, "logits": logits.detach()}
 
     def test_step(self, batch):
         """Performs a test step."""
@@ -289,8 +296,15 @@ class Experiment:
         
         # Let rank 0 find a new name and create folders
         if is_rank_zero():
+            # Resume from checkpoint, we just write a new config file
+            if self.args.training.resume_from_checkpoint is not None:
+                cfg_path = run_path / "config.yaml"
+                cfg_path = get_next_name(cfg_path)
+                self.args.save(cfg_path)
+                return run_path
+
             if not args_l.overwrite_existing and run_path.exists():
-                run_path = get_next_experiment_name(run_path)
+                run_path = get_next_name(run_path)
             
             if args_l.overwrite_existing and run_path.exists():
                 shutil.rmtree(run_path) 
@@ -402,7 +416,7 @@ class Experiment:
             if args_l.save_model_every_n_epochs > 0:
                 callbacks.append(ModelCheckpoint(
                     dirpath=self.run_path / "models",
-                    filename="last_checkpoint",
+                    filename="last",
                     save_top_k=1,
                     save_last=False,
                     monitor=None,
@@ -464,7 +478,6 @@ class Experiment:
     def setup_trainer(self, extra_callbacks: list[Callback] | None = None) -> pl.Trainer:
         """Sets up the PyTorch Lightning Trainer."""
 
-
         loggers = self.get_loggers()
         callbacks = self.get_callbacks(extra_callbacks)   
         profiler = self.get_profiler()
@@ -500,16 +513,15 @@ class Experiment:
             self, 
             args_overrides: Config | dict | None = None, 
             extra_callbacks: list[Callback] | None = None,
-            recreate_dataset: bool = False, 
+            recreate_dataset: bool = False
             ):
         """Main entry point.
 
         Args:
             args_overrides: Dictionary to override args in self.args.
+            extra_callbacks: Extra callbacks to add to the trainer.
             recreate_dataset: If True, recreates the data module. Useful for hyperparameter
             optimization where dataset parameters may change.
-            extra_loggers: Extra loggers to add to the trainer.
-            extra_callbacks: Extra callbacks to add to the trainer.
 
         Returns:
             float: The value of the validation metric after training (useful for hyperparameter 
@@ -527,8 +539,13 @@ class Experiment:
         self.run_path = self.setup_logging(stage="fit")
         self.model = self.get_model()
         self.trainer = self.setup_trainer(extra_callbacks=extra_callbacks)
+        # Set checkpoint path if resuming
+        ckpt_path = None
+        ckpt_name = self.args.training.resume_from_checkpoint
+        if ckpt_name is not None:
+            ckpt_path = self.run_path / "models" / ckpt_name
 
-        self.trainer.fit(self.model, datamodule=self.data_module)
+        self.trainer.fit(self.model, datamodule=self.data_module, ckpt_path=ckpt_path)
         
         # Return metric (Useful for Optuna)
         return self.trainer.callback_metrics[self.args.training.validation_metric].item()
@@ -536,39 +553,70 @@ class Experiment:
     def test(
             self, 
             args_overrides: Config | dict | None = None, 
-            checkpoint: str | None = None,
+            checkpoint_name: str | None = None,
             recreate_dataset: bool = False, 
             ):
-        """Test a model.
+        """Test a model. The model, trainer and, optionally, data module are recreated at
+        the start of testing. 
+        
+        This function may be called on two different scenarios:
+
+        1) Right after fit(): the default behavior is to use the best model found during fit if
+        log_checkpoints was True during training. This can be changed by passing a specific
+        checkpoint name or by setting checkpoint="last" to use the last saved checkpoint.
+        2) Without calling fit(): test can be called for any pretrained model by setting the
+        appropriate run_path in the config file and passing a specific checkpoint name.
 
         Args:
-            args_overrides: Dictionary to override args in self.args. 
-            checkpoint: Name of the checkpoint to load from the self.run_path / "models" folder. 
-            It can also be "best", in which case ModelCheckpoint callbacks will be used to load 
-            the corresponding model. 
+            args_overrides: Dictionary to override args in self.args. Be careful when changing
+            parameters here, since they must be compatible with the training parameters. You can
+            change, for instance, the batch size.
+            checkpoint_name: Name of the checkpoint to load from self.run_path / "models" or "last".
+            See description above for details.
             recreate_dataset: If True, recreates the data module. 
         """
 
         if args_overrides is not None:
             self.args.update_from(args_overrides)
 
+        fit_called = self.run_path is not None
+
+        if not fit_called and (checkpoint_name is None or checkpoint_name == "last"):
+            raise ValueError(
+                "You must provide a checkpoint name when calling test() without calling fit() "
+                "beforehand."
+            )
+
         self._set_seed()
+
+        # Checkpoint loading logic
+        ckpt_path = None
+        if checkpoint_name is None:
+            if self.trainer and self.trainer.checkpoint_callback:
+                # Warning! This relies on the save_top_k checkpoint callback being present and 
+                # being the first ModelCheckpoint on the list of callbacks!
+                ckpt_path = self.trainer.checkpoint_callback.best_model_path
+            if not ckpt_path or ckpt_path == "":
+                raise ValueError(
+                    "Could not find best model path from trainer. Please provide a checkpoint "
+                    "name."
+                )
+        elif checkpoint_name == "last":
+            ckpt_path = self.run_path / "models" / "last.ckpt"
+        else:
+            ckpt_path = self.run_path / "models" / checkpoint_name
+        # ----      
 
         if recreate_dataset:
             self.data_module = self.get_data_module()
 
-        fit_called = self.run_path is not None
         if not fit_called:
             self.run_path = self.setup_logging(stage="test")
             self.model = self.get_model()
-        # Recreate Trainer to allow different parameters between fit and test.
-        self.trainer = self.setup_trainer()        
+            self.trainer = self.setup_trainer()      
 
-        if checkpoint is not None:
-            checkpoint = self.run_path / "models" / checkpoint # type: ignore
-        
         return self.trainer.test(
-            self.model, datamodule=self.data_module, ckpt_path=checkpoint)
+            self.model, datamodule=self.data_module, ckpt_path=ckpt_path)
         
     def _set_seed(self):
 

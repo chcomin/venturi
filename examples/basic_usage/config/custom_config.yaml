@@ -43,12 +43,14 @@ dataset:
       p: 0.5
   val_transforms:
   train_dataloader:
+    _target_: torch.utils.data.DataLoader
     batch_size: 8
     shuffle: true
     num_workers: 0
     persistent_workers: false
     pin_memory: true
   val_dataloader:
+    _target_: torch.utils.data.DataLoader
     batch_size: 8
     shuffle: false
     num_workers: 0

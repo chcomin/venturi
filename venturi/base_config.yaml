@@ -81,14 +81,16 @@ dataset:
   #num_train_samples: 100
   #num_classes: 10
   #img_size: [224, 224]
-  # Parameters for the data loaders.
+  # Parameters for the dataloaders.
   train_dataloader:
+    _target_: torch.utils.data.DataLoader
     batch_size: 8
     shuffle: true
     num_workers: 0
     persistent_workers: false
     pin_memory: true
   val_dataloader:
+    _target_: torch.utils.data.DataLoader
     batch_size: 8
     shuffle: false
     num_workers: 0
@@ -170,6 +172,10 @@ training:
     benchmark: false
     # Additonal Trainer kwargs
     kwargs: {}
+  # Name of a checkpoint inside run_path/models to resume training from. If null, training starts 
+  # from scratch
+  # This is an experimental feature!
+  resume_from_checkpoint: null
   # Metric to monitor for top k model checkpointing and early stopping
   validation_metric: "val/loss"
   # Stop training if no improvement after 'patience' validation runs

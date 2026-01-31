@@ -12,36 +12,8 @@ from importlib import resources
 from pathlib import Path
 from typing import Any, Self
 
-import torch.nn as nn
-import torch.optim as optim
 import yaml
 
-# Short names for standard PyTorch components.
-SHORTCUTS = {
-    # Optimizers
-    "Adam": optim.Adam,
-    "AdamW": optim.AdamW,
-    "SGD": optim.SGD,
-    "RMSprop": optim.RMSprop,
-    
-    # Schedulers
-    "ReduceLROnPlateau": optim.lr_scheduler.ReduceLROnPlateau,
-    "CosineAnnealingLR": optim.lr_scheduler.CosineAnnealingLR,
-    "PolynomialLR": optim.lr_scheduler.PolynomialLR,
-    "StepLR": optim.lr_scheduler.StepLR,
-    
-    # Losses
-    "CrossEntropyLoss": nn.CrossEntropyLoss,
-    "MSELoss": nn.MSELoss,
-    "BCEWithLogitsLoss": nn.BCEWithLogitsLoss,
-    
-    # Common Layers
-    "Linear": nn.Linear,
-    "ReLU": nn.ReLU,
-    "Sequential": nn.Sequential,
-    "Conv2d": nn.Conv2d,
-    "Flatten": nn.Flatten,
-}
 
 class Config(MutableMapping):
     """A dynamic configuration class that behaves like a dictionary but allows dot-notation
@@ -373,13 +345,7 @@ def get_target(target_str: str) -> Any:
             frame = frame.f_back            
     finally:
         del frame
-    
-    # Check Shortcuts. We do this after stack frames to allow user overrides. But it can
-    # have side effects in case the user has a local/global variable with the same name as 
-    # a shortcut.
-    if target_str in SHORTCUTS:
-        return SHORTCUTS[target_str]
-    
+
     raise NameError(f"Object '{target_str}' not found. Is the name correct and in scope?")
 
 def instantiate(config: Config | dict | list | Any, partial: bool | None = None) -> Any:
@@ -394,11 +360,10 @@ def instantiate(config: Config | dict | list | Any, partial: bool | None = None)
         respects the '_partial_' key in the config.
     
     Special keywords:
-    - _target_: The class or function to create.
+    - _target_: The class or function to create. Can be a dotted path or a name in scope.
     - _partial_: If True, returns a partial (factory).
     - _args_: List of positional arguments to pass to the target.
     - _raw_: If True, returns the config as-is (stops recursion).
-    - Other keys starting with "_": Treated as meta keys and ignored during instantiation.
     """
     
     # Handle lists
@@ -434,7 +399,7 @@ def instantiate(config: Config | dict | list | Any, partial: bool | None = None)
         # Recursively instantiate children
         instantiated_data = {k: instantiate(v) for k, v in config.items()}
         
-        # Option 2A: Return Config object if input was Config
+        # Return Config object if input was Config
         if isinstance(config, Config):
             return Config._from_dict(instantiated_data)
         return instantiated_data
@@ -451,13 +416,13 @@ def instantiate(config: Config | dict | list | Any, partial: bool | None = None)
     
     for k, v in config.items():
         if k == "_args_":
-            # Option 3A: Positional arguments
+            # Positional arguments
             if not isinstance(v, list):
                 raise ValueError(f"'_args_' must be a list, got {type(v)}")
             args = [instantiate(arg) for arg in v]
             continue
             
-        if not k.startswith("_"):
+        if k not in ("_target_", "_partial_", "_args_", "_raw_"):
             kwargs[k] = instantiate(v)
             
     # Check if partial
@@ -521,6 +486,7 @@ def create_config(args_list: list[str] | None = None):
                 f"I will create a FOLDER named '{dest_dir.name}' and put base_config.yaml "
                 "inside it."
                 )
+            dest_dir = dest_dir.parent / dest_dir.stem
 
         if not dest_dir.exists():
             dest_dir.mkdir(parents=True)
