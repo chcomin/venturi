@@ -9,7 +9,7 @@ from venturi import Config
 
 
 class WeightedBCEWithLogitsLoss(torch.nn.Module):
-    """Similar to nn.BCEWithLogitsLoss with pos_weight, but matches exactly the behavior of 
+    """Similar to nn.BCEWithLogitsLoss with pos_weight, but matches exactly the behavior of
     nn.CrossEntropyLoss when classes are weighted.
     """
 
@@ -29,6 +29,7 @@ class WeightedBCEWithLogitsLoss(torch.nn.Module):
         self.reduction = reduction
 
     def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """Compute the loss."""
         # Move weight to correct device if needed
         if self.weight.device != input.device:
             self.weight = self.weight.to(input.device)
@@ -48,8 +49,10 @@ class WeightedBCEWithLogitsLoss(torch.nn.Module):
         else:
             return weighted_losses
 
+
 class Dice(BinaryF1Score):
     """Dice score for binary segmentation."""
+
     def __init__(self, threshold=0.5, ignore_index=None, **kwargs):
         """Args:
         threshold: Threshold for converting predicted probabilities to binary (0 or 1).
@@ -58,10 +61,7 @@ class Dice(BinaryF1Score):
         """
         # 'samplewise' returns Dice per image
         super().__init__(
-            threshold=threshold, 
-            multidim_average="samplewise", 
-            ignore_index=ignore_index,
-            **kwargs
+            threshold=threshold, multidim_average="samplewise", ignore_index=ignore_index, **kwargs
         )
 
     def update(self, preds: torch.Tensor, target: torch.Tensor):
@@ -75,18 +75,21 @@ class Dice(BinaryF1Score):
         val = super().compute()
         return val.mean()
 
+
 def binary_segmentation_metrics(args: Config) -> torchmetrics.MetricCollection:
-    """ Define common metrics for binary segmentation tasks.
+    """Define common metrics for binary segmentation tasks.
 
     Args:
         args (Config): Configuration object containing hyperparameters.
     """
 
-    metrics = torchmetrics.MetricCollection({
-        "accuracy": torchmetrics.Accuracy(task="binary"),
-        "dice": Dice(),
-        "precision": torchmetrics.Precision(task="binary"),
-        "recall": torchmetrics.Recall(task="binary"),
-    })
-    
-    return metrics    
+    metrics = torchmetrics.MetricCollection(
+        {
+            "accuracy": torchmetrics.Accuracy(task="binary"),
+            "dice": Dice(),
+            "precision": torchmetrics.Precision(task="binary"),
+            "recall": torchmetrics.Recall(task="binary"),
+        }
+    )
+
+    return metrics

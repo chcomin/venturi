@@ -35,13 +35,13 @@ logging:
   - 1
   - 2
   - 3
-  log_to_disk: false
+  log_val_data_to_disk: false
   wandb:
     log_wandb: false
     silence_wandb: true
     wandb_project: baseline
     wandb_group: null
-    log_val_data_wandb: false
+    log_val_data_to_wandb: false
     class_labels:
     - Background
     - Foreground
@@ -49,12 +49,14 @@ dataset:
   setup:
     _target_: scripts.synthetic_dataset.get_segmentation_dataset
   train_dataloader:
+    _target_: torch.utils.data.DataLoader
     batch_size: 8
     shuffle: true
     num_workers: 0
     persistent_workers: false
     pin_memory: true
   val_dataloader:
+    _target_: torch.utils.data.DataLoader
     batch_size: 8
     shuffle: false
     num_workers: 0
@@ -93,7 +95,7 @@ model:
     _target_: scripts.model.get_model
   params:
     num_input_channels: 3
-    num_classes: 1
+    num_output_channels: 1
     base_filters: 16
     num_layers: 4
 losses:
@@ -104,7 +106,8 @@ losses:
       - 1.0
       - 1.0
 metrics:
-  _target_: scripts.metrics.binary_segmentation_metrics
+  setup:
+    _target_: scripts.metrics.binary_segmentation_metrics
 training:
   optimizer:
     _target_: torch.optim.SGD
@@ -129,6 +132,7 @@ training:
     deterministic: false
     benchmark: false
     kwargs: {}
+  resume_from_checkpoint: null
   validation_metric: val/loss
   patience: null
   maximize_validation_metric: false
