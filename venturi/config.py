@@ -415,7 +415,7 @@ def instantiate(config: Config | dict | list | Any, partial: bool | None = None)
     
     # Check for _raw_ flag
     # We access safely to avoid triggering __getattr__ logic excessively
-    is_raw = config.get("_raw_") if isinstance(config, dict) else config.get("_raw_")
+    is_raw = config.get("_raw_")
     
     if is_raw is True:
         if isinstance(config, Config):
@@ -508,7 +508,8 @@ def create_config(args_list: list[str] | None = None):
             cfg_path = current_dir / "base_config.yaml"
             
         if not cfg_path.exists():
-            raise FileNotFoundError(f"Source config file missing at {cfg_path}. Check installation.")
+            raise FileNotFoundError(
+                f"Source config file missing at {cfg_path}. Check installation.")
 
         dest_dir = Path(args.destination_path).resolve()
         

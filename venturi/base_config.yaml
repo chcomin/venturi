@@ -134,6 +134,10 @@ training:
     # lr_scheduler_config dictionary to pass to LightningModule.configure_optimizers
     scheduler_config:
       interval: "step"
+    # Some schedulers need to know the total number of training iterations or epochs. You can
+    # set it in the scheduler parameters above. Alternatively, you can set needs_total_iters to
+    # true and Venturi will try to automatically estimate the total number of training
+    # iterations or epochs
     needs_total_iters: true
   # Parameters for the main Lightning Trainer
   trainer_params:

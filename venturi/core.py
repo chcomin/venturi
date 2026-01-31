@@ -20,6 +20,7 @@ from venturi._util import (
     delete_wandb_run,
     generate_name_from_config,
     get_next_experiment_name,
+    is_rank_zero,
     silence_lightning,
 )
 from venturi.config import Config, instantiate
@@ -52,6 +53,9 @@ class DataModule(pl.LightningDataModule):
         if _has_wandb and args_l.wandb.silence_wandb:
             os.environ["WANDB_SILENT"] = "True"
 
+        # dataloader generator
+        self.generator = torch.Generator().manual_seed(self.args.seed)
+
         # Call the function indicated in self.args.dataset.setup, passing the args.
         get_dataset = instantiate(self.args.dataset.setup, partial=True)
         train_ds, other_ds = get_dataset(self.args) 
@@ -62,28 +66,28 @@ class DataModule(pl.LightningDataModule):
         """Returns the training DataLoader."""
         return DataLoader(
             self.train_ds, 
-            generator=torch.Generator().manual_seed(self.args.seed),
+            generator=self.generator,
             **self.args.dataset.train_dataloader)
 
     def val_dataloader(self):
         """Returns the validation DataLoader."""
         return DataLoader(
             self.other_ds, 
-            generator=torch.Generator().manual_seed(self.args.seed),
+            generator=self.generator,
             **self.args.dataset.val_dataloader)
     
     def test_dataloader(self):
         """Returns the test DataLoader."""
         return DataLoader(
             self.other_ds,
-            generator=torch.Generator().manual_seed(self.args.seed),
+            generator=self.generator,
             **self.args.dataset.test_dataloader)
     
     def predict_dataloader(self):
         """Returns the predict DataLoader."""
         return DataLoader(
             self.other_ds, 
-            generator=torch.Generator().manual_seed(self.args.seed),
+            generator=self.generator,
             **self.args.dataset.predict_dataloader)
 
 class TrainingModule(pl.LightningModule):
@@ -185,12 +189,12 @@ class TrainingModule(pl.LightningModule):
         args = {"optimizer": optimizer}
 
         # Some lr_schedulers need to know the total number of iterations
-        if getattr(args_t.lr_scheduler, "needs_total_iters", False):
+        if getattr(args_t.lr_scheduler, "needs_total_iters", False):     
             interval = getattr(args_t.lr_scheduler.scheduler_config, "interval", "step")
             if interval == "epoch":
                 total_iters = self.trainer.max_epochs
             else:
-                total_iters = self.trainer.estimated_stepping_batches
+                total_iters = self._estimate_total_steps()
             if "OneCycleLR" in args_t.lr_scheduler.instance:
                 # In OneCycleLR the parameter is named total_steps instead of total_iters
                 args["total_steps"] = total_iters
@@ -203,6 +207,42 @@ class TrainingModule(pl.LightningModule):
         lr_scheduler_config["scheduler"] = scheduler
 
         return lr_scheduler_config
+    
+    def _estimate_total_steps(self):
+        """Estimate total training steps for schedulers that need it."""
+
+        try:
+            total_iters = self.trainer.estimated_stepping_batches
+        except Exception:
+            total_iters = None
+
+        if total_iters == float("inf") or (total_iters is None and self.trainer.max_epochs == -1):
+             raise ValueError(
+                "The selected scheduler requires a known total number of steps (total_iters), "
+                "but `max_epochs` is set to -1 (infinite). Please set `max_epochs` to a positive " \
+                "integer or choose a different scheduler."
+            )
+
+        # Fallback calculation if Lightning returned None or 0 (but max_epochs is valid)
+        if total_iters is None or total_iters == 0:
+            if self.trainer.max_epochs > 0: # type: ignore
+                num_devices = max(1, self.trainer.num_devices)
+                batch_size = self.args.dataset.train_dataloader.batch_size
+                dataset_len = len(self.trainer.datamodule.train_dataloader().dataset)
+                
+                factor = batch_size * num_devices * self.trainer.accumulate_grad_batches
+                steps_per_epoch = dataset_len // factor
+                total_iters = steps_per_epoch * self.trainer.max_epochs
+            
+                if total_iters == 0:
+                     raise ValueError(
+                         "Estimated total steps is 0. Check your batch size and dataset length.")
+            else:
+                 raise ValueError(
+                    "Cannot estimate total steps. Ensure `max_epochs` > 0 or use `max_steps`."
+                 )
+            
+        return total_iters
 
 class Experiment:
     """Main class to run experiments based on a configuration file."""
@@ -239,18 +279,32 @@ class Experiment:
         run_path = generate_name_from_config(args_copy, args_l.run_path)
         run_path = Path(run_path)
         
-        if stage == "fit" and args_l.create_folder:
-            # Directory creation logic
-            if run_path.exists():
-                if args_l.overwrite_existing:
-                    shutil.rmtree(run_path)  
-                else:   
-                    run_path = get_next_experiment_name(run_path)
-            run_path.mkdir(parents=True, exist_ok=True)
+        # Not fitting, no need to mess with folders
+        if stage != "fit":
+            return run_path
+
+        # The user does not want folder creation
+        if not args_l.create_folder:
+            return run_path
+        
+        # Let rank 0 find a new name and create folders
+        if is_rank_zero():
+            if not args_l.overwrite_existing and run_path.exists():
+                run_path = get_next_experiment_name(run_path)
             
+            if args_l.overwrite_existing and run_path.exists():
+                shutil.rmtree(run_path) 
+            run_path.mkdir(parents=True, exist_ok=True)
             self.args.save(run_path / "config.yaml")
 
-        return run_path
+        if torch.distributed.is_initialized():
+            path_container = [run_path] if is_rank_zero() else [None]
+            torch.distributed.broadcast_object_list(path_container, src=0)
+            # Let other ranks know the run_path
+            run_path = path_container[0]
+            torch.distributed.barrier()
+
+        return run_path # type: ignore
 
     def get_data_module(self) -> DataModule:
         """Override this for a different dataset logic (e.g.: multiple datasets)."""
@@ -281,7 +335,8 @@ class Experiment:
             if _has_wandb is False:
                 raise ImportError("WandbLogger requires wandb to be installed. "
                                   "Please install it or disable wandb logging.")
-            delete_wandb_run(args_w.wandb_project, str(run_path))
+            if is_rank_zero():
+                delete_wandb_run(args_w.wandb_project, str(run_path))
             loggers.append(WandbLogger(
                 name=str(run_path), 
                 save_dir=str(run_path),
@@ -487,10 +542,10 @@ class Experiment:
         """Test a model.
 
         Args:
-            args_overrides: Dictionary to override args in self.args.
+            args_overrides: Dictionary to override args in self.args. 
             checkpoint: Name of the checkpoint to load from the self.run_path / "models" folder. 
-            It can also be "best" and "last", in which case ModelCheckpoint callbabks will be
-            used to load the corresponding model.
+            It can also be "best", in which case ModelCheckpoint callbacks will be used to load 
+            the corresponding model. 
             recreate_dataset: If True, recreates the data module. 
         """
 
@@ -522,13 +577,16 @@ class Experiment:
     def _check_args(self, args: Config):
         """Do some checks on the args to avoid misconfigurations."""
 
+        if not is_rank_zero():
+            return
+
         if args.dataset.setup._target_ == "<dot.path.to.function>":
             raise ValueError("Dataset setup function is not defined in the configuration.")
         if args.model.setup._target_ == "<dot.path.to.function>":
             raise ValueError("Model setup function is not defined in the configuration.")
         if args.metrics.setup._target_ == "<dot.path.to.function>":
             raise ValueError("Metrics function is not defined in the configuration.")
-        
+
         args_l = args.logging
         has_log = any([
             args_l.log_csv, 
