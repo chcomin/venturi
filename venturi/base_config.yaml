@@ -15,7 +15,7 @@ logging:
   run_path: results
   # If true, erases the content if a run_path with the same name exists
   # If false, creates a new folder named run_path_2, run_path_3, ...
-  overwrite_existing: true
+  overwrite_existing: false
   # Enable or disable logging to csv file
   log_csv: true
   # Enable or disable model checkpoints. Checkpoints can be configured below
@@ -72,8 +72,9 @@ logging:
    
 dataset:
   setup:
-    # Function that returns the trainining and validation datasets. The function must accept
-    # as first parameter a configuration object (this yaml file converted to a Namespace)
+    # Function that returns the dataset. The function must accept as first parameter a 
+    # configuration object (this yaml file converted to a Namespace) and return a dictionary with
+    # the keys 'train_ds', 'val_ds' and optionally 'test_ds' containing the respective datasets.
     # See the examples in the venturi repository.
     _target_: <dot.path.to.function>  # Change this!!
   # You can add any parameters needed for dataset creation here, and use them in the dataset 
@@ -106,12 +107,13 @@ model:
 losses:
   # Flexible definition of losses. You can add any loss here and their values will be combined
   # and automatically logged during training and validation. Each loss must have an 'instance'
-  # field indicating the loss class and its parameters, as well as a 'loss_weight' field
+  # field indicating the loss class and its parameters. It can also have a 'loss_weight' field
   # indicating the weight of each loss in the final combined loss. See the examples in the
   # venturi repository.
-  cross_entropy:
-    instance:
-      _target_: torch.nn.CrossEntropyLoss
+  # Example:
+  #cross_entropy:
+  #  instance:
+  #    _target_: torch.nn.CrossEntropyLoss
 
 metrics:
   # Function that returns a torchmetrics.MetricCollection object with all performance metrics
@@ -172,8 +174,9 @@ training:
     benchmark: false
     # Additonal Trainer kwargs
     kwargs: {}
-  # Name of a checkpoint inside run_path/models to resume training from. If null, training starts 
-  # from scratch
+  # Name of a checkpoint inside run_path/models to resume training from. When a name is provided, 
+  # the overwrite_existing parameter is ignored. Also, a new config.yaml file is created in the
+  # experiment folder and the previous config is not overwritten. 
   # This is an experimental feature!
   resume_from_checkpoint: null
   # Metric to monitor for top k model checkpointing and early stopping
@@ -184,7 +187,9 @@ training:
   maximize_validation_metric: false
   # If the validation metric gets worse than this threshold, training stops
   divergence_threshold: null
-  # Enable the profiler to analyze performance bottlenecks
+  # Enable the profiler to analyze performance bottlenecks. The profiler waits for 1 step,
+  # warms up for 1 step, and then profiles for 4 steps. Then it repeats the cycle one more
+  # time. This means that two profiling traces will be created in the experiment folder.
   profile: false
   # Profiler output level. In general, higher values lead to more detailed profiling but also
   # higher overhead and final file size. Valid values are:

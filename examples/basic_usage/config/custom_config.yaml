@@ -1,5 +1,9 @@
 logging:
+  overwrite_existing: true
   run_path: "results" 
+  log_checkpoints: true
+  save_model_every_n_epochs: 0
+  save_top_k_models: 1
   plot:
     left_plot:
       metrics:
@@ -43,14 +47,18 @@ dataset:
       p: 0.5
   val_transforms:
   train_dataloader:
-    _target_: torch.utils.data.DataLoader
     batch_size: 8
     shuffle: true
     num_workers: 0
     persistent_workers: false
     pin_memory: true
   val_dataloader:
-    _target_: torch.utils.data.DataLoader
+    batch_size: 8
+    shuffle: false
+    num_workers: 0
+    persistent_workers: false
+    pin_memory: true
+  test_dataloader:
     batch_size: 8
     shuffle: false
     num_workers: 0
@@ -68,8 +76,9 @@ model:
 losses:
   cross_entropy:
     instance:
+      # We use a custom class here because the targets are of type int and the Pytorch's 
+      # BCEWithLogitsLoss expects float.
       _target_: scripts.metrics.WeightedBCEWithLogitsLoss
-      weight: [1.0, 1.0]
 
 metrics:
   setup:

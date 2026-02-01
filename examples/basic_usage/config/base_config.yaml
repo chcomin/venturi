@@ -12,7 +12,7 @@ logging:
   run_path: "_experiment" 
   # If true, erases the content if a run_path with the same name exists
   # If false, creates a new folder named run_path_1, run_path_2, ...
-  overwrite_existing: true
+  overwrite_existing: false
   # Enable or disable individual loggers
   log_csv: true
   # Model checkpoints
@@ -104,12 +104,19 @@ model:
 
 losses:
   # Flexible definition of losses. You can add any loss here and their values will be combined
-  # and automatically logged during training and validation. Each loss must have an 'instance' field
-  # indicating the loss class and its parameters, as well as a 'loss_weight' field indicating the weight
-  # of each loss in the final combined loss. See the examples in the venturi repository.
-  cross_entropy:
-    instance:
-      _target_: torch.nn.CrossEntropyLoss
+  # and automatically logged during training and validation. Each loss must have an 'instance'
+  # field indicating the loss class and its parameters. It can also have a 'loss_weight' field
+  # indicating the weight of each loss in the final combined loss. See the examples in the
+  # venturi repository.
+  # Example:
+  #cross_entropy:
+  #  instance:
+  #    _target_: torch.nn.CrossEntropyLoss
+  #  loss_weight: 1.0
+  #mse:
+  #  instance:
+  #    _target_: torch.nn.MSELoss
+  #  loss_weight: 0.5
 
 metrics:
   # Function that returns a torchmetrics.MetricCollection object with all performance metrics

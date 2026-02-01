@@ -41,14 +41,12 @@ class DataModule(pl.LightningDataModule):
         """
         super().__init__()
         self.vcfg = vcfg
-        # Dataset dictionary to hold train, val, test or predict datasets
-        self.ds_dict: dict[str, torch.utils.data.Dataset] = {}
 
     def setup(self, stage=None):
         """Setup datasets for different stages.
 
         Args:
-            stage: One of 'fit', 'validate', 'test', or 'predict'.
+            stage: One of 'fit', 'validate' or 'test'.
         """
 
         vcfg_l = self.vcfg.logging
@@ -63,45 +61,47 @@ class DataModule(pl.LightningDataModule):
 
         # Call the function indicated in self.vcfg.dataset.setup, passing vcfg.
         get_dataset = instantiate(self.vcfg.dataset.setup, partial=True)
-        datasets = get_dataset(self.vcfg)
+        ds_dict = get_dataset(self.vcfg)
+        self._check_datasets(stage, ds_dict)
 
-        # Check if the returned datasets are correct
-        if stage == "fit" or stage is None:
-            if len(datasets) != 2:
-                raise ValueError(
-                    "The dataset setup function must return a train and validation dataset for "
-                    "training"
-                )
-            self.train_ds = datasets[0]
-            self.val_ds = datasets[1]
-        elif stage == "test" or stage == "predict":
-            if not isinstance(datasets, torch.utils.data.Dataset):
-                raise ValueError(
-                    "The dataset setup function must return a Pytorch Dataset for testing or "
-                    "predicting"
-                )
-            self.test_ds = datasets
+        self.train_ds = ds_dict.get("train_ds", None)
+        self.val_ds = ds_dict.get("val_ds", None)
+        self.test_ds = ds_dict.get("test_ds", None)
 
     def train_dataloader(self):
         """Returns the training DataLoader."""
-        dl = instantiate(self.vcfg.dataset.train_dataloader, partial=True)
+        vcfg_dl = self.vcfg.dataset.train_dataloader
+        vcfg_dl["_target_"] = "torch.utils.data.DataLoader"
+        dl = instantiate(vcfg_dl, partial=True)
         return dl(self.train_ds, generator=self.generator)
 
     def val_dataloader(self):
         """Returns the validation DataLoader."""
-        dl = instantiate(self.vcfg.dataset.val_dataloader, partial=True)
+        vcfg_dl = self.vcfg.dataset.val_dataloader
+        vcfg_dl["_target_"] = "torch.utils.data.DataLoader"
+        dl = instantiate(vcfg_dl, partial=True)
         return dl(self.val_ds, generator=self.generator)
 
     def test_dataloader(self):
         """Returns the test DataLoader."""
-        dl = instantiate(self.vcfg.dataset.test_dataloader, partial=True)
+        vcfg_dl = self.vcfg.dataset.test_dataloader
+        vcfg_dl["_target_"] = "torch.utils.data.DataLoader"
+        dl = instantiate(vcfg_dl, partial=True)
         return dl(self.test_ds, generator=self.generator)
 
-    def predict_dataloader(self):
-        """Returns the predict DataLoader."""
-        dl = instantiate(self.vcfg.dataset.predict_dataloader, partial=True)
-        return dl(self.test_ds, generator=self.generator)
+    def _check_datasets(self, stage, ds_dict):
+        """Checks that the required datasets are present in ds_dict for the given stage."""
 
+        expected_keys = {
+            "fit": ["train_ds", "val_ds"],
+            "validate": ["val_ds"],
+            "test": ["test_ds"]
+        }
+        if stage in expected_keys:
+            for key in expected_keys[stage]:
+                if key not in ds_dict:
+                    raise ValueError(
+                        f"Dataset '{key}' is required for stage '{stage}' but not found.")
 
 class TrainingModule(pl.LightningModule):
     """Base TrainingModule which uses model, loss and metric setup functions defined in the
@@ -171,10 +171,6 @@ class TrainingModule(pl.LightningModule):
         bs = x.size(0)
         output = self.test_metrics(logits, y)
         self.log_dict(output, on_step=False, on_epoch=True, prog_bar=False, batch_size=bs)
-
-    def predict_step(self, batch):
-        """Performs a predict step."""
-        return self(batch)
 
     def configure_optimizers(self):
         """Configures optimizers and learning rate schedulers based on the config file."""
@@ -284,7 +280,7 @@ class Experiment:
         The method must return the main path where logs and checkpoints will be stored.
 
         Args:
-            stage: One of 'fit', 'validate', 'test', or 'predict'.
+            stage: Either 'fit' or 'test'.
         
         Returns:
             Path: The path to the logging directory.
@@ -314,23 +310,26 @@ class Experiment:
         if is_rank_zero():
             # Resume from checkpoint, we just write a new config file
             if self.vcfg.training.resume_from_checkpoint is not None:
-                cfg_path = run_path / "config.yaml"
-                cfg_path = get_next_name(cfg_path)
-                self.vcfg.save(cfg_path)
+                vcfg_path = run_path / "config.yaml"
+                vcfg_path = get_next_name(vcfg_path)
+                self.vcfg.save(vcfg_path)
                 return run_path
 
-            if not vcfg_l.overwrite_existing and run_path.exists():
-                run_path = get_next_name(run_path)
+            if run_path.exists():
+                if vcfg_l.overwrite_existing:
+                    # Erase previous run
+                    shutil.rmtree(run_path)
+                else:
+                    # Get next available run name
+                    run_path = get_next_name(run_path)
 
-            if vcfg_l.overwrite_existing and run_path.exists():
-                shutil.rmtree(run_path)
             run_path.mkdir(parents=True, exist_ok=True)
             self.vcfg.save(run_path / "config.yaml")
 
         if torch.distributed.is_initialized():
+            # Broadcast run_path to other processes
             path_container = [run_path] if is_rank_zero() else [None] # type: ignore
             torch.distributed.broadcast_object_list(path_container, src=0)
-            # Let other ranks know the run_path
             run_path = path_container[0]
             torch.distributed.barrier()
 
@@ -437,13 +436,15 @@ class Experiment:
         if vcfg_l.log_checkpoints:
             # Best Model
             if vcfg_l.save_top_k_models > 0:
+                val_m = vcfg_t.validation_metric
+                safe_val_m = val_m.replace("/", "_")
                 callbacks.append(
                     ModelCheckpoint(
                         dirpath=self.run_path / "models",
-                        filename="best_model_epoch={epoch}_val_loss={val/loss:.4f}",
+                        filename=f"best_model_epoch={{epoch}}_{safe_val_m}={{{val_m}:.4f}}",
                         save_top_k=vcfg_l.save_top_k_models,
                         save_last=False,
-                        monitor=vcfg_t.validation_metric,
+                        monitor=val_m,
                         mode=mode,
                         auto_insert_metric_name=False,
                     )
@@ -621,7 +622,7 @@ class Experiment:
             vcfg_overrides: Dictionary to override vcfg in self.vcfg. Be careful when changing
             parameters here, since they must be compatible with the training parameters. You can
             change, for instance, the batch size.
-            checkpoint_name: Name of the checkpoint to load from self.run_path / "models" or "last".
+            checkpoint_name: Name of the checkpoint to load from self.run_path/models or "last".
             See description above for details.
             recreate_dataset: If True, recreates the data module.
         """
@@ -639,7 +640,7 @@ class Experiment:
 
         self._set_seed()
 
-        if recreate_dataset:
+        if recreate_dataset or self.data_module is None:
             self.data_module = self.get_data_module()
 
         if not fit_called:
@@ -688,6 +689,14 @@ class Experiment:
             raise ValueError("Model setup function is not defined in the configuration.")
         if vcfg.metrics.setup._target_ == "<dot.path.to.function>":
             raise ValueError("Metrics function is not defined in the configuration.")
+        if len(vcfg.losses) == 0:
+            raise ValueError("No losses defined in the 'losses' section of the configuration.")
+        has_weight = ["loss_weight" in param for param in vcfg.losses.values()]
+        if len(vcfg.losses) > 1 and not all(has_weight):
+            raise ValueError(
+                "When using more than one loss, all losses in the 'losses' section must have a "
+                "'loss_weight' parameter."
+            )
 
         vcfg_l = vcfg.logging
         has_log = any(

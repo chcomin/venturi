@@ -23,14 +23,14 @@ class MockDataset(data.Dataset):
         return torch.randn(3, 32, 32), torch.randint(0, 10, (1,))
 
 
-def mock_dataset_setup_fit(args):
+def mock_dataset_setup_fit(vcfg):
     """Mock dataset setup function for fit stage."""
     train_ds = MockDataset(100)
     val_ds = MockDataset(20)
     return train_ds, val_ds
 
 
-def mock_dataset_setup_test(args):
+def mock_dataset_setup_test(vcfg):
     """Mock dataset setup function for test stage."""
     return MockDataset(50)
 
@@ -53,7 +53,7 @@ class TestDataModuleInit:
         })
         
         dm = DataModule(config)
-        assert dm.args == config
+        assert dm.vcfg == config
         assert dm.ds_dict == {}
 
 
@@ -275,7 +275,7 @@ class TestDataModuleErrorHandling:
     
     def test_datamodule_setup_wrong_dataset_count_fit(self):
         """Raise error if setup function returns wrong number of datasets for fit"""
-        def bad_setup(args):
+        def bad_setup(vcfg):
             return MockDataset(100)  # Returns 1 dataset instead of 2
         
         config = Config({
@@ -296,7 +296,7 @@ class TestDataModuleErrorHandling:
     
     def test_datamodule_setup_wrong_type_test(self):
         """Raise error if setup function returns wrong type for test"""
-        def bad_setup(args):
+        def bad_setup(vcfg):
             return [MockDataset(50), MockDataset(50)]  # Returns list instead of single dataset
         
         config = Config({

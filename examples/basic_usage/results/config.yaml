@@ -4,13 +4,13 @@ logging:
   run_path: results
   overwrite_existing: true
   log_csv: true
-  log_checkpoints: false
+  log_checkpoints: true
   log_plot: true
   log_training_time: true
   enable_progress_bar: false
   silence_lightning: true
   log_every_n_steps: 4
-  save_model_every_n_epochs: 1
+  save_model_every_n_epochs: 0
   save_top_k_models: 1
   plot:
     left_plot:
@@ -90,6 +90,12 @@ dataset:
       _target_: torchvision.transforms.v2.RandomVerticalFlip
       p: 0.5
   val_transforms: null
+  test_dataloader:
+    batch_size: 8
+    shuffle: false
+    num_workers: 0
+    persistent_workers: false
+    pin_memory: true
 model:
   setup:
     _target_: scripts.model.get_model
@@ -102,9 +108,6 @@ losses:
   cross_entropy:
     instance:
       _target_: scripts.metrics.WeightedBCEWithLogitsLoss
-      weight:
-      - 1.0
-      - 1.0
 metrics:
   setup:
     _target_: scripts.metrics.binary_segmentation_metrics

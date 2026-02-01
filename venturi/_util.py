@@ -52,27 +52,27 @@ class LossCollection(nn.Module):
     dictionary with the individual loss values with the format {loss_name: loss_value}.
     """
 
-    def __init__(self, cfg_loss: Config, return_logs: bool = True, prefix: str = ""):
+    def __init__(self, vcfg_loss: Config, return_logs: bool = True, prefix: str = ""):
         """Args:
-        cfg_loss: Configuration dictionary for the loss functions.
+        vcfg_loss: Configuration dictionary for the loss functions.
         return_logs: Whether to return individual loss values as logs.
         prefix: Prefix to add to the loss names in the logs.
         """
         super().__init__()
 
         # If there is a single loss without weight, set its weight to 1.0
-        if len(cfg_loss) == 1:
-            name, config = next(iter(cfg_loss.items()))
+        if len(vcfg_loss) == 1:
+            name, config = next(iter(vcfg_loss.items()))
             if "loss_weight" not in config:
-                cfg_loss[name]["loss_weight"] = 1.0
+                config["loss_weight"] = 1.0
 
         self.loss_map = nn.ModuleDict()
-        self.cfg_loss = cfg_loss
+        self.vcfg_loss = vcfg_loss
         self.return_logs = return_logs
         self.weights = {}
 
         # Register components
-        for name, config in cfg_loss.items():
+        for name, config in vcfg_loss.items():
             self.loss_map[f"{prefix}{name}"] = instantiate(config["instance"])
             self.weights[f"{prefix}{name}"] = config["loss_weight"]
 
@@ -100,7 +100,7 @@ class LossCollection(nn.Module):
 
     def clone(self, prefix: str = "") -> "LossCollection":
         """Make a copy of the class."""
-        return self.__class__(deepcopy(self.cfg_loss), self.return_logs, prefix)
+        return self.__class__(deepcopy(self.vcfg_loss), self.return_logs, prefix)
 
 
 class PlottingCallback(Callback):
@@ -412,8 +412,14 @@ def silence_lightning():
     """Silence annoying Lightning messages."""
 
     warnings.filterwarnings("ignore", module="lightning")
+    # Warning when num_workers is low in the Dataloader
     warnings.filterwarnings("ignore", message=".*does not have many workers.*")
+    # Warning when logging/validation steps is larger than the number of batches
     warnings.filterwarnings("ignore", ".*The number of training batches.*")
+    # Warning when ModelCheckpoint directory exists
+    warnings.filterwarnings("ignore", ".*exists and is not empty.*")
+    # Specific internal Lightning deprecation warning that might be solved in future versions
+    warnings.filterwarnings("ignore", ".*treespec, LeafSpec.*")
     warnings.filterwarnings(
         "ignore", message=".*isinstance.treespec, LeafSpec. is deprecated.*", category=FutureWarning
     )

@@ -1,0 +1,21 @@
+logging:
+  run_path: _results
+  create_folder: true
+  overwrite_existing: true
+
+dataset:
+  setup:
+    _target_: _get_simple_dataset
+
+model:
+  setup:
+    _target_: _get_simple_cnn
+ 
+losses:
+  bce:
+    instance:
+      _target_: torch.nn.BCEWithLogitsLoss
+
+metrics:
+  setup:
+    _target_: _get_metrics

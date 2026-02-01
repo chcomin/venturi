@@ -120,7 +120,7 @@ class SegmentationTransform:
         return img_out, mask_out
 
 
-def get_segmentation_dataset(vcfg: Config) -> tuple:
+def get_segmentation_dataset(vcfg: Config):
     """Creates train and validation SyntheticDataset for segmentation task."""
 
     vcfg_d = vcfg.dataset
@@ -142,4 +142,12 @@ def get_segmentation_dataset(vcfg: Config) -> tuple:
         seed=vcfg.seed + 1,
     )
 
-    return train_ds, val_ds
+    output = {
+        "train_ds": train_ds,
+        "val_ds": val_ds,
+        # The test_ds is only required if testing is performed, which is the case for the example.
+        # Here we just return val_ds to make the example simple.
+        "test_ds": val_ds
+    }
+
+    return output
