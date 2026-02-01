@@ -1,18 +1,15 @@
 <div align="center">
 
-<img src="assets/logo.png" alt="Venturi Logo" width="160">
+<img src="https://raw.githubusercontent.com/chcomin/venturi/master/assets/logo.png" alt="Venturi Logo" width="160">
 
 # Venturi
 
-**A hackable blueprint for training neural networks.**
-
-[![PyPI](https://img.shields.io/pypi/v/venturi?style=flat-square&logo=pypi&logoColor=white)](https://pypi.org/project/venturi/)
-[![Python](https://img.shields.io/pypi/pyversions/venturi?style=flat-square&logo=python&logoColor=white)](https://pypi.org/project/venturi/)
-[![License](https://img.shields.io/pypi/l/venturi?style=flat-square)](https://github.com/chcomin/venturi/blob/main/LICENSE)
+**A hackable blueprint for training neural networks**
 
 <p align="center">
-  <a href="#installation">Installation</a> •
   <a href="#quick-start">Quick Start</a> •
+  <a href="#installation">Installation</a> •
+  <a href="#why-venturi">Why Venturi?</a> •
   <a href="#examples">Examples</a>
 </p>
 
@@ -20,18 +17,61 @@
 
 ---
 
-**A hackable blueprint for training neural networks using PyTorch and Lightning.**
 
-Venturi is a minimalist alternative to Hydra and LightningCLI. It prioritizes code transparency and flexibility. By separating experiment parameters from logic, it enables complex experiment registration without the bloat of heavy configuration frameworks.
+Venturi is a minimalist alternative to Hydra and LightningCLI for separating experiment parameters from code, while prioritizing framework transparency and flexibility. 
 
-## Why Venturi?
+## Quick Start
 
-Most configuration frameworks force you to learn their specific DSL or hide logic behind complex abstractions. Venturi takes a different approach:
+### Scaffold a Project
+Generate a default configuration file:
 
-* **Auditable Core:** The entire package logic resides in just two files: `config.py` and `core.py`. You can read, understand, and modify the inner workings.
-* **Zero-Overhead Configuration:** No enforced `argparse` or `pydantic` validation by default. You instantiate Python objects directly from YAML. Validation is opt-in, not mandatory.
-* **Global Context:** The full YAML configuration is passed to the main classes used for training. This allows you to define complex relationships (e.g., dynamically setting model depth based on dataset size) without changing the training loop.
-* **Inheritance-First Design:** The experiment lifecycle is defined by classes designed to be subclassed when custom training logic is necessary.
+```bash
+venturi create path/to/project
+```
+
+This creates a [base_config.yaml](venturi/base_config.yaml) file containing the default parameters for an experiment.
+
+### Add custom configuration and run an experiment
+
+```python
+from venturi import Config, Experiment
+
+# Load Venturi defaults
+args = Config("base_config.yaml")
+
+# Add custom configuration for dataset, model and loss function
+args.update_from_yaml("experiments/my_custom_config.yaml")
+
+# Initialize and train. All training artifacts, including
+# performance metrics and model checkpoints are logged.
+experiment = Experiment(args)
+experiment.fit()
+```
+
+### Change a core Venturi component
+
+The default experiment lifecycle is flexible to support changing the main training artifacts (dataset, model, metrics and composite loss functions). But if custom training logic is required, you can just change one of the base classes:
+
+```python
+from venturi import TrainingModule, Experiment
+
+class CustomTrainingModule(TrainingModule):
+  def training_step(self, batch):
+    # Get all experiment settings
+    args = self.args
+    # Create custom logic for training step
+    ...
+
+class CustomExperiment(Experiment):
+  def get_loggers(self):
+    args = self.args
+    # Add your own logic for storing performance metrics
+    ...
+
+...
+experiment = CustomExperiment(args)
+experiment.fit()
+```
 
 ## Installation
 
@@ -47,33 +87,24 @@ To run the provided examples, install the optional dependencies:
 pip install "venturi[examples]"
 ```
 
-## Quick Start
-
-### 1. Scaffold a Project
-Generate a standard directory structure and a default configuration file:
+There is no conda package yet. To install on conda you can do
 
 ```bash
-venturi create path/to/project
+conda env create -n env_name -f environment.yaml 
+conda activate env_name
+# --no-build-isolation --no-deps is useful for avoiding pip conflicts
+pip install --no-build-isolation --no-deps venturi 
 ```
 
-This creates a [base_config.yaml](venturi/base_config.yaml) file containing the default blueprints.
+## Why Venturi?
 
-### 2. Define Your Experiment
-Venturi uses a hierarchical configuration system. You load a base configuration and override it with experiment-specific YAMLs.
+Most configuration frameworks force you to learn their specific DSL or hide logic behind complex abstractions. Venturi takes a different approach:
 
-```python
-from venturi import Config, Experiment
+* **Auditable Core:** The entire package logic resides in just two files: `config.py` and `core.py`. You can read, understand, and modify the inner workings.
+* **Zero-Overhead Configuration:** No enforced `argparse` or `pydantic` validation by default. You instantiate Python objects directly from YAML. Validation is opt-in, not mandatory.
+* **Global Context:** The full YAML configuration is passed to the main classes used for training. This allows you to define complex relationships (e.g., dynamically setting model depth based on dataset size) without changing experiment setup code.
+* **Inheritance-First Design:** The experiment lifecycle is defined by classes designed to be subclassed when custom training logic is necessary.
 
-# 1. Load the project defaults
-args = Config("base_config.yaml")
-
-# 2. Overlay custom experiment parameters
-args.update_from_yaml("experiments/my_custom_config.yaml")
-
-# 3. Initialize and Run
-experiment = Experiment(args)
-experiment.fit()
-```
 
 ## Examples
 

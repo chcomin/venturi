@@ -120,26 +120,26 @@ class SegmentationTransform:
         return img_out, mask_out
 
 
-def get_segmentation_dataset(args: Config) -> tuple:
+def get_segmentation_dataset(vcfg: Config) -> tuple:
     """Creates train and validation SyntheticDataset for segmentation task."""
 
-    args_d = args.dataset
+    vcfg_d = vcfg.dataset
 
     train_ds = SyntheticDataset(
-        num_samples=args_d.params.num_train_samples,
-        num_channels=args_d.params.num_channels,
-        img_size=args_d.params.img_size,
+        num_samples=vcfg_d.params.num_train_samples,
+        num_channels=vcfg_d.params.num_channels,
+        img_size=vcfg_d.params.img_size,
         task="segmentation",
-        transform=SegmentationTransform(args_d.train_transforms),
-        seed=args.seed,
+        transform=SegmentationTransform(vcfg_d.train_transforms),
+        seed=vcfg.seed,
     )
     val_ds = SyntheticDataset(
-        num_samples=args_d.params.num_val_samples,
-        num_channels=args_d.params.num_channels,
-        img_size=args_d.params.img_size,
+        num_samples=vcfg_d.params.num_val_samples,
+        num_channels=vcfg_d.params.num_channels,
+        img_size=vcfg_d.params.img_size,
         task="segmentation",
-        transform=SegmentationTransform(args_d.val_transforms),
-        seed=args.seed + 1,
+        transform=SegmentationTransform(vcfg_d.val_transforms),
+        seed=vcfg.seed + 1,
     )
 
     return train_ds, val_ds

@@ -131,9 +131,9 @@ class PlottingCallback(Callback):
             fig, ax = plt.subplots(1, 2, figsize=(15, 5))
 
             # Loss Plot
-            args_p = pl_module.args.logging.plot.left_plot
+            vcfg_p = pl_module.vcfg.logging.plot.left_plot
             has_line = False
-            for key in args_p.metrics:  
+            for key in vcfg_p.metrics:  
                 key_p = key
                 if key_p == "train/loss":
                     # Lightning automatically adds 'step' or 'epoch' suffixes to train loss
@@ -147,12 +147,12 @@ class PlottingCallback(Callback):
             ax[0].set_xlabel("epoch")
             if has_line:
                 ax[0].legend()
-            ax[0].set_ylim(args_p.ylim.min, args_p.ylim.max)
+            ax[0].set_ylim(vcfg_p.ylim.min, vcfg_p.ylim.max)
 
             # Metrics Plot
-            args_p = pl_module.args.logging.plot.right_plot
+            vcfg_p = pl_module.vcfg.logging.plot.right_plot
             has_line = False
-            for key in args_p.metrics:  
+            for key in vcfg_p.metrics:  
                 if key in df.columns:
                     data = df[["epoch", key]].dropna()
                     if len(data) > 1:
@@ -162,7 +162,7 @@ class PlottingCallback(Callback):
             ax[1].set_xlabel("epoch")
             if has_line:
                 ax[1].legend()
-            ax[1].set_ylim(args_p.ylim.min, args_p.ylim.max)
+            ax[1].set_ylim(vcfg_p.ylim.min, vcfg_p.ylim.max)
             # Save
             plt.tight_layout()
             plt.savefig(logger_dir / "plots.png")

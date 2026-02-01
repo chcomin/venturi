@@ -76,11 +76,11 @@ class Dice(BinaryF1Score):
         return val.mean()
 
 
-def binary_segmentation_metrics(args: Config) -> torchmetrics.MetricCollection:
+def binary_segmentation_metrics(vcfg: Config) -> torchmetrics.MetricCollection:
     """Define common metrics for binary segmentation tasks.
 
     Args:
-        args (Config): Configuration object containing hyperparameters.
+        vcfg: Configuration object containing hyperparameters.
     """
 
     metrics = torchmetrics.MetricCollection(

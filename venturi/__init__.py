@@ -3,7 +3,7 @@ from typing import Any
 from venturi.config import Config, instantiate
 from venturi.core import DataModule, Experiment, TrainingModule
 
-__version__ = "0.9.1"
+__version__ = "0.9.2"
 
 __all__ = [
     "Config",

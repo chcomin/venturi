@@ -35,12 +35,12 @@ torch.set_float32_matmul_precision("high")
 class DataModule(pl.LightningDataModule):
     """Base DataModule which uses a dataset setup function defined in the config file."""
 
-    def __init__(self, args: Config):
+    def __init__(self, vcfg: Config):
         """Args:
-        args: Configuration dictionary.
+        vcfg: Venturi configuration.
         """
         super().__init__()
-        self.args = args
+        self.vcfg = vcfg
         # Dataset dictionary to hold train, val, test or predict datasets
         self.ds_dict: dict[str, torch.utils.data.Dataset] = {}
 
@@ -51,19 +51,19 @@ class DataModule(pl.LightningDataModule):
             stage: One of 'fit', 'validate', 'test', or 'predict'.
         """
 
-        args_l = self.args.logging
+        vcfg_l = self.vcfg.logging
         # We need to silence lightning and wandb here due to multiprocessing
-        if args_l.silence_lightning:
+        if vcfg_l.silence_lightning:
             silence_lightning()
-        if _has_wandb and args_l.wandb.silence_wandb:
+        if _has_wandb and vcfg_l.wandb.silence_wandb:
             os.environ["WANDB_SILENT"] = "True"
 
         # dataloader generator
-        self.generator = torch.Generator().manual_seed(self.args.seed)
+        self.generator = torch.Generator().manual_seed(self.vcfg.seed)
 
-        # Call the function indicated in self.args.dataset.setup, passing the args.
-        get_dataset = instantiate(self.args.dataset.setup, partial=True)
-        datasets = get_dataset(self.args)
+        # Call the function indicated in self.vcfg.dataset.setup, passing vcfg.
+        get_dataset = instantiate(self.vcfg.dataset.setup, partial=True)
+        datasets = get_dataset(self.vcfg)
 
         # Check if the returned datasets are correct
         if stage == "fit" or stage is None:
@@ -84,22 +84,22 @@ class DataModule(pl.LightningDataModule):
 
     def train_dataloader(self):
         """Returns the training DataLoader."""
-        dl = instantiate(self.args.dataset.train_dataloader, partial=True)
+        dl = instantiate(self.vcfg.dataset.train_dataloader, partial=True)
         return dl(self.train_ds, generator=self.generator)
 
     def val_dataloader(self):
         """Returns the validation DataLoader."""
-        dl = instantiate(self.args.dataset.val_dataloader, partial=True)
+        dl = instantiate(self.vcfg.dataset.val_dataloader, partial=True)
         return dl(self.val_ds, generator=self.generator)
 
     def test_dataloader(self):
         """Returns the test DataLoader."""
-        dl = instantiate(self.args.dataset.test_dataloader, partial=True)
+        dl = instantiate(self.vcfg.dataset.test_dataloader, partial=True)
         return dl(self.test_ds, generator=self.generator)
 
     def predict_dataloader(self):
         """Returns the predict DataLoader."""
-        dl = instantiate(self.args.dataset.predict_dataloader, partial=True)
+        dl = instantiate(self.vcfg.dataset.predict_dataloader, partial=True)
         return dl(self.test_ds, generator=self.generator)
 
 
@@ -108,23 +108,23 @@ class TrainingModule(pl.LightningModule):
     config file. The model is very close to a vanilla LightningModule.
     """
 
-    def __init__(self, args: Config):
+    def __init__(self, vcfg: Config):
         """Args:
-        args: Configuration dictionary.
+        vcfg: Venturi configuration.
         """
         super().__init__()
-        self.args = args
+        self.vcfg = vcfg
 
-        get_model = instantiate(self.args.model.setup, partial=True)
-        self.model = get_model(self.args)
+        get_model = instantiate(self.vcfg.model.setup, partial=True)
+        self.model = get_model(self.vcfg)
 
-        loss_fn = LossCollection(args.losses)
+        loss_fn = LossCollection(vcfg.losses)
         self.train_loss = loss_fn.clone(prefix="train/")
         self.val_loss = loss_fn.clone(prefix="val/")
 
         # Performance Metrics
-        get_metrics = instantiate(self.args.metrics.setup, partial=True)
-        metrics = get_metrics(self.args)
+        get_metrics = instantiate(self.vcfg.metrics.setup, partial=True)
+        metrics = get_metrics(self.vcfg)
         self.val_metrics = metrics.clone(prefix="val/")
         self.test_metrics = metrics.clone(prefix="test/")
 
@@ -179,13 +179,13 @@ class TrainingModule(pl.LightningModule):
     def configure_optimizers(self):
         """Configures optimizers and learning rate schedulers based on the config file."""
 
-        args_t = self.args.training
-        optimizer_factory = instantiate(args_t.optimizer, partial=True)
+        vcfg_t = self.vcfg.training
+        optimizer_factory = instantiate(vcfg_t.optimizer, partial=True)
         optimizer = optimizer_factory(self.parameters())
 
         output = {"optimizer": optimizer}
 
-        if "lr_scheduler" in args_t:
+        if "lr_scheduler" in vcfg_t:
             output["lr_scheduler"] = self.get_scheduler(optimizer)
 
         return output
@@ -196,26 +196,26 @@ class TrainingModule(pl.LightningModule):
         almost all Pytorch schedulers by just changing the yaml configuration.
         """
 
-        args_t = self.args.training
-        scheduler_factory = instantiate(args_t.lr_scheduler.instance, partial=True)
-        args = {"optimizer": optimizer}
+        vcfg_t = self.vcfg.training
+        scheduler_factory = instantiate(vcfg_t.lr_scheduler.instance, partial=True)
+        sched_args = {"optimizer": optimizer}
 
         # Some lr_schedulers need to know the total number of iterations
-        if getattr(args_t.lr_scheduler, "needs_total_iters", False):
-            interval = getattr(args_t.lr_scheduler.scheduler_config, "interval", "step")
+        if getattr(vcfg_t.lr_scheduler, "needs_total_iters", False):
+            interval = getattr(vcfg_t.lr_scheduler.scheduler_config, "interval", "step")
             if interval == "epoch":
                 total_iters = self.trainer.max_epochs
             else:
                 total_iters = self._estimate_total_steps()
-            if "OneCycleLR" in args_t.lr_scheduler.instance:
+            if "OneCycleLR" in vcfg_t.lr_scheduler.instance:
                 # In OneCycleLR the parameter is named total_steps instead of total_iters
-                args["total_steps"] = total_iters
+                sched_args["total_steps"] = total_iters
             else:
-                args["total_iters"] = total_iters
+                sched_args["total_iters"] = total_iters
 
-        scheduler = scheduler_factory(**args)
+        scheduler = scheduler_factory(**sched_args)
 
-        lr_scheduler_config = args_t.lr_scheduler.scheduler_config.to_dict()
+        lr_scheduler_config = vcfg_t.lr_scheduler.scheduler_config.to_dict()
         lr_scheduler_config["scheduler"] = scheduler
 
         return lr_scheduler_config
@@ -239,7 +239,7 @@ class TrainingModule(pl.LightningModule):
         if total_iters is None or total_iters == 0:
             if self.trainer.max_epochs > 0:  # type: ignore
                 num_devices = max(1, self.trainer.num_devices)
-                batch_size = self.args.dataset.train_dataloader.batch_size
+                batch_size = self.vcfg.dataset.train_dataloader.batch_size
                 dataset_len = len(self.trainer.datamodule.train_dataloader().dataset) # type: ignore
 
                 factor = batch_size * num_devices * self.trainer.accumulate_grad_batches
@@ -261,14 +261,14 @@ class TrainingModule(pl.LightningModule):
 class Experiment:
     """Main class to run experiments based on a configuration file."""
 
-    def __init__(self, args: Config):
+    def __init__(self, vcfg: Config):
         """Args:
-        args: Configuration object.
+        vcfg: Venturi configuration.
         """
 
-        self._check_args(args)
+        self._check_vcfg(vcfg)
 
-        self.args = args
+        self.vcfg = vcfg
         self.run_path: Path | None = None
         self.model: TrainingModule | None = None
         self.trainer: pl.Trainer | None = None
@@ -280,18 +280,26 @@ class Experiment:
     def setup_logging(self, stage: str = "fit") -> Path:
         """Handles the run_path name expansion and experiment directory creation logic as well
         as lightning and wandb verbosity.
-        """
-        args_l = self.args.logging
 
-        if args_l.silence_lightning:
+        The method must return the main path where logs and checkpoints will be stored.
+
+        Args:
+            stage: One of 'fit', 'validate', 'test', or 'predict'.
+        
+        Returns:
+            Path: The path to the logging directory.
+        """
+        vcfg_l = self.vcfg.logging
+
+        if vcfg_l.silence_lightning:
             silence_lightning()
-        if _has_wandb and args_l.wandb.silence_wandb:
+        if _has_wandb and vcfg_l.wandb.silence_wandb:
             os.environ["WANDB_SILENT"] = "True"
 
         # Expand run_path name if {key} patterns are found
-        args_copy = self.args.copy()
-        args_copy.logging.run_path = ""
-        run_path = generate_name_from_config(args_copy, args_l.run_path)
+        vcfg_copy = self.vcfg.copy()
+        vcfg_copy.logging.run_path = ""
+        run_path = generate_name_from_config(vcfg_copy, vcfg_l.run_path)
         run_path = Path(run_path)
 
         # Not fitting, no need to mess with folders
@@ -299,25 +307,25 @@ class Experiment:
             return run_path
 
         # The user does not want folder creation
-        if not args_l.create_folder:
+        if not vcfg_l.create_folder:
             return run_path
 
         # Let rank 0 find a new name and create folders
         if is_rank_zero():
             # Resume from checkpoint, we just write a new config file
-            if self.args.training.resume_from_checkpoint is not None:
+            if self.vcfg.training.resume_from_checkpoint is not None:
                 cfg_path = run_path / "config.yaml"
                 cfg_path = get_next_name(cfg_path)
-                self.args.save(cfg_path)
+                self.vcfg.save(cfg_path)
                 return run_path
 
-            if not args_l.overwrite_existing and run_path.exists():
+            if not vcfg_l.overwrite_existing and run_path.exists():
                 run_path = get_next_name(run_path)
 
-            if args_l.overwrite_existing and run_path.exists():
+            if vcfg_l.overwrite_existing and run_path.exists():
                 shutil.rmtree(run_path)
             run_path.mkdir(parents=True, exist_ok=True)
-            self.args.save(run_path / "config.yaml")
+            self.vcfg.save(run_path / "config.yaml")
 
         if torch.distributed.is_initialized():
             path_container = [run_path] if is_rank_zero() else [None] # type: ignore
@@ -330,16 +338,23 @@ class Experiment:
 
     def get_data_module(self) -> DataModule:
         """Override this for a different dataset logic (e.g.: multiple datasets)."""
-        return DataModule(self.args)
+        return DataModule(self.vcfg)
 
     def get_model(self) -> TrainingModule:
         """Override this for a different model logic (e.g.: multiple models)."""
-        return TrainingModule(self.args)
+        return TrainingModule(self.vcfg)
 
-    def get_loggers(self):
-        """Setup loggers."""
+    def get_loggers(self) -> list[pl.loggers.Logger]:
+        """Setup loggers. Loggers are used for writing logs to disk or to a remote service like
+        Weights & Biases. 
+        
+        The method must return a list of loggers.
+        
+        Returns:
+            list[pl.loggers.Logger]: The list of loggers.
+        """
 
-        args_l = self.args.logging
+        vcfg_l = self.vcfg.logging
         run_path = self.run_path
 
         if run_path is None:
@@ -347,87 +362,94 @@ class Experiment:
 
         loggers: list[pl.loggers.Logger] = []
 
-        if args_l.log_csv:
+        if vcfg_l.log_csv:
             loggers.append(CSVLogger(save_dir=run_path, name="", version=""))
 
-        args_w = args_l.wandb
-        if args_w.log_wandb:
+        vcfg_w = vcfg_l.wandb
+        if vcfg_w.log_wandb:
             if _has_wandb is False:
                 raise ImportError(
                     "WandbLogger requires wandb to be installed. "
                     "Please install it or disable wandb logging."
                 )
             if is_rank_zero():
-                delete_wandb_run(args_w.wandb_project, str(run_path))
+                delete_wandb_run(vcfg_w.wandb_project, str(run_path))
             loggers.append(
                 WandbLogger(
                     name=str(run_path),
                     save_dir=str(run_path),
-                    project=args_w.wandb_project,
-                    group=args_w.wandb_group,
-                    config=self.args.to_dict(),
+                    project=vcfg_w.wandb_project,
+                    group=vcfg_w.wandb_group,
+                    config=self.vcfg.to_dict(),
                 )
             )
 
         return loggers
 
-    def get_callbacks(self, extra_callbacks: list[Callback] | None = None):
-        """Constructs the list of callbacks.
+    def get_callbacks(self, extra_callbacks: list[Callback] | None = None) -> list[Callback]:
+        """Constructs a list of callbacks that are sent to Lightning. Callbacks can be used for
+        model checkpointing, early stopping, custom validation logging, etc.
+        
+        The method must return a list of callbacks.
 
-        extra_callbacks: passed from setup_trainer() (e.g. Optuna Pruning)
+        Args:
+        extra_callbacks: passed from get_trainer() (e.g. Optuna Pruning)
+
+        Returns:
+            list[Callback]: The list of callbacks.
         """
 
         if self.run_path is None:
             raise ValueError("run_path must be set before setting callbacks.")
 
-        args_l = self.args.logging
-        args_t = self.args.training
+        vcfg_l = self.vcfg.logging
+        vcfg_t = self.vcfg.training
         callbacks = extra_callbacks or []
 
         # Device Stats Monitor
-        if args_t.monitor_device_stats:
+        if vcfg_t.monitor_device_stats:
             callbacks.append(DeviceStatsMonitor(cpu_stats=True))
 
         # Training Time Logger
-        if args_l.log_training_time:
+        if vcfg_l.log_training_time:
             callbacks.append(TrainingTimeLoggerCallback(self.run_path))
 
         # Custom Visualization & Plotting
-        if args_l.save_val_data:
+        if vcfg_l.save_val_data:
             callbacks.append(
                 ImageSaveCallback(
                     self.run_path,
-                    args_l.val_data_indices,
-                    log_disk=args_l.log_val_data_to_disk,
-                    mean=getattr(args_l, "dataset_mean", None),
-                    std=getattr(args_l, "dataset_std", None),
-                    log_wandb=args_l.wandb.log_wandb and args_l.wandb.log_val_data_to_wandb,
-                    class_labels=args_l.wandb.class_labels,
+                    vcfg_l.val_data_indices,
+                    log_disk=vcfg_l.log_val_data_to_disk,
+                    mean=getattr(vcfg_l, "dataset_mean", None),
+                    std=getattr(vcfg_l, "dataset_std", None),
+                    log_wandb=vcfg_l.wandb.log_wandb and vcfg_l.wandb.log_val_data_to_wandb,
+                    class_labels=vcfg_l.wandb.class_labels,
                 )
             )
 
-        if args_l.log_plot:
+        if vcfg_l.log_plot:
             callbacks.append(PlottingCallback())
 
-        mode = "max" if args_t.maximize_validation_metric else "min"
+        mode = "max" if vcfg_t.maximize_validation_metric else "min"
 
         # Checkpointing
-        if args_l.log_checkpoints:
+        if vcfg_l.log_checkpoints:
             # Best Model
-            if args_l.save_top_k_models > 0:
+            if vcfg_l.save_top_k_models > 0:
                 callbacks.append(
                     ModelCheckpoint(
                         dirpath=self.run_path / "models",
                         filename="best_model_epoch={epoch}_val_loss={val/loss:.4f}",
-                        save_top_k=args_l.save_top_k_models,
+                        save_top_k=vcfg_l.save_top_k_models,
                         save_last=False,
-                        monitor=args_t.validation_metric,
+                        monitor=vcfg_t.validation_metric,
                         mode=mode,
                         auto_insert_metric_name=False,
                     )
                 )
             # Save model every n epochs
-            if args_l.save_model_every_n_epochs > 0:
+            if vcfg_l.save_model_every_n_epochs > 0:
                 callbacks.append(
                     ModelCheckpoint(
                         dirpath=self.run_path / "models",
@@ -435,36 +457,40 @@ class Experiment:
                         save_top_k=1,
                         save_last=False,
                         monitor=None,
-                        every_n_epochs=args_l.save_model_every_n_epochs,
+                        every_n_epochs=vcfg_l.save_model_every_n_epochs,
                     )
                 )
 
         # Early Stopping
-        if args_t.patience:
+        if vcfg_t.patience:
             callbacks.append(
                 EarlyStopping(
-                    monitor=args_t.validation_metric,
-                    patience=args_t.patience,
+                    monitor=vcfg_t.validation_metric,
+                    patience=vcfg_t.patience,
                     mode=mode,
-                    divergence_threshold=args_t.divergence_threshold,
+                    divergence_threshold=vcfg_t.divergence_threshold,
                 )
             )
 
         # Instantiate extra callbacks from config
-        if "extra_callbacks" in args_t:
-            for cb_conf in args_t.extra_callbacks.values():
+        if "extra_callbacks" in vcfg_t:
+            for cb_conf in vcfg_t.extra_callbacks.values():
                 cb = instantiate(cb_conf)
                 callbacks.append(cb)
 
         return callbacks
 
-    def get_profiler(self):
-        """Setup profiler based on config."""
+    def get_profiler(self) -> PyTorchProfiler | None:
+        """Setup a profiler for measuring performance.
+        
+        Returns:
+            PyTorchProfiler | None: The profiler or None if profiling is disabled.
+        """
 
-        if not getattr(self.args.training, "profile", False):
+        if not getattr(self.vcfg.training, "profile", False):
             return None
 
-        verbosity = getattr(self.args.training, "profile_verbosity", 0)
+        verbosity = getattr(self.vcfg.training, "profile_verbosity", 0)
 
         if verbosity >= 5:
             # TODO: check if this works
@@ -492,8 +518,15 @@ class Experiment:
 
         return profiler
 
-    def setup_trainer(self, extra_callbacks: list[Callback] | None = None) -> pl.Trainer:
-        """Sets up the PyTorch Lightning Trainer."""
+    def get_trainer(self, extra_callbacks: list[Callback] | None = None) -> pl.Trainer:
+        """Sets up the PyTorch Lightning Trainer. Must return a pl.Trainer instance.
+        
+        Args:
+            extra_callbacks: Extra callbacks to add to the trainer.
+        
+        Returns:
+            pl.Trainer: The PyTorch Lightning Trainer.
+        """
 
         loggers = self.get_loggers()
         callbacks = self.get_callbacks(extra_callbacks)
@@ -501,41 +534,41 @@ class Experiment:
 
         enable_checkpointing = any(isinstance(cb, ModelCheckpoint) for cb in callbacks)
 
-        args_t = self.args.training.trainer_params
+        vcfg_t = self.vcfg.training.trainer_params
 
         trainer = pl.Trainer(
             default_root_dir=str(self.run_path),
-            devices=args_t.devices,
-            strategy=args_t.strategy,
-            precision=args_t.precision,
-            max_epochs=args_t.max_epochs,
-            accumulate_grad_batches=args_t.accumulate_grad_batches,
-            gradient_clip_val=args_t.gradient_clip_val,
-            check_val_every_n_epoch=args_t.check_val_every_n_epoch,
-            log_every_n_steps=self.args.logging.log_every_n_steps,
-            enable_progress_bar=self.args.logging.enable_progress_bar,
-            deterministic=args_t.deterministic,
-            benchmark=args_t.benchmark,
+            devices=vcfg_t.devices,
+            strategy=vcfg_t.strategy,
+            precision=vcfg_t.precision,
+            max_epochs=vcfg_t.max_epochs,
+            accumulate_grad_batches=vcfg_t.accumulate_grad_batches,
+            gradient_clip_val=vcfg_t.gradient_clip_val,
+            check_val_every_n_epoch=vcfg_t.check_val_every_n_epoch,
+            log_every_n_steps=self.vcfg.logging.log_every_n_steps,
+            enable_progress_bar=self.vcfg.logging.enable_progress_bar,
+            deterministic=vcfg_t.deterministic,
+            benchmark=vcfg_t.benchmark,
             enable_checkpointing=enable_checkpointing,
             logger=loggers,
             callbacks=callbacks,
             profiler=profiler,
             enable_model_summary=False,
-            **args_t.kwargs,
+            **vcfg_t.kwargs,
         )
 
         return trainer
 
     def fit(
         self,
-        args_overrides: Config | dict | None = None,
+        vcfg_overrides: Config | dict | None = None,
         extra_callbacks: list[Callback] | None = None,
         recreate_dataset: bool = False,
     ):
-        """Main entry point.
+        """Main entry point for training.
 
         Args:
-            args_overrides: Dictionary to override args in self.args.
+            vcfg_overrides: Dictionary to override vcfg in self.vcfg.
             extra_callbacks: Extra callbacks to add to the trainer.
             recreate_dataset: If True, recreates the data module. Useful for hyperparameter
             optimization where dataset parameters may change.
@@ -545,8 +578,8 @@ class Experiment:
             optimization).
         """
 
-        if args_overrides is not None:
-            self.args.update_from(args_overrides)
+        if vcfg_overrides is not None:
+            self.vcfg.update_from(vcfg_overrides)
 
         self._set_seed()
 
@@ -555,21 +588,21 @@ class Experiment:
 
         self.run_path = self.setup_logging(stage="fit")
         self.model = self.get_model()
-        self.trainer = self.setup_trainer(extra_callbacks=extra_callbacks)
+        self.trainer = self.get_trainer(extra_callbacks=extra_callbacks)
         # Set checkpoint path if resuming
         ckpt_path = None
-        ckpt_name = self.args.training.resume_from_checkpoint
+        ckpt_name = self.vcfg.training.resume_from_checkpoint
         if ckpt_name is not None:
             ckpt_path = self.run_path / "models" / ckpt_name
 
         self.trainer.fit(self.model, datamodule=self.data_module, ckpt_path=ckpt_path)
 
         # Return metric (Useful for Optuna)
-        return self.trainer.callback_metrics[self.args.training.validation_metric].item()
+        return self.trainer.callback_metrics[self.vcfg.training.validation_metric].item()
 
     def test(
         self,
-        args_overrides: Config | dict | None = None,
+        vcfg_overrides: Config | dict | None = None,
         checkpoint_name: str | None = None,
         recreate_dataset: bool = False,
     ):
@@ -585,7 +618,7 @@ class Experiment:
         appropriate run_path in the config file and passing a specific checkpoint name.
 
         Args:
-            args_overrides: Dictionary to override args in self.args. Be careful when changing
+            vcfg_overrides: Dictionary to override vcfg in self.vcfg. Be careful when changing
             parameters here, since they must be compatible with the training parameters. You can
             change, for instance, the batch size.
             checkpoint_name: Name of the checkpoint to load from self.run_path / "models" or "last".
@@ -593,8 +626,8 @@ class Experiment:
             recreate_dataset: If True, recreates the data module.
         """
 
-        if args_overrides is not None:
-            self.args.update_from(args_overrides)
+        if vcfg_overrides is not None:
+            self.vcfg.update_from(vcfg_overrides)
 
         fit_called = self.run_path is not None
 
@@ -612,7 +645,7 @@ class Experiment:
         if not fit_called:
             self.run_path = self.setup_logging(stage="test")
             self.model = self.get_model()
-            self.trainer = self.setup_trainer()
+            self.trainer = self.get_trainer()
 
         # Sanity check to make sure all attributes are set
         for attr in (self.run_path, self.data_module, self.model, self.trainer):
@@ -641,37 +674,37 @@ class Experiment:
         )
 
     def _set_seed(self):
-        pl.seed_everything(self.args.seed, workers=True, verbose=False)
+        pl.seed_everything(self.vcfg.seed, workers=True, verbose=False)
 
-    def _check_args(self, args: Config):
-        """Do some checks on the args to avoid misconfigurations."""
+    def _check_vcfg(self, vcfg: Config):
+        """Do some checks on vcfg to avoid misconfigurations."""
 
         if not is_rank_zero():
             return
 
-        if args.dataset.setup._target_ == "<dot.path.to.function>":
+        if vcfg.dataset.setup._target_ == "<dot.path.to.function>":
             raise ValueError("Dataset setup function is not defined in the configuration.")
-        if args.model.setup._target_ == "<dot.path.to.function>":
+        if vcfg.model.setup._target_ == "<dot.path.to.function>":
             raise ValueError("Model setup function is not defined in the configuration.")
-        if args.metrics.setup._target_ == "<dot.path.to.function>":
+        if vcfg.metrics.setup._target_ == "<dot.path.to.function>":
             raise ValueError("Metrics function is not defined in the configuration.")
 
-        args_l = args.logging
+        vcfg_l = vcfg.logging
         has_log = any(
             [
-                args_l.log_csv,
-                args_l.log_checkpoints,
-                args_l.log_plot,
-                args_l.log_training_time,
-                args_l.save_val_data,
+                vcfg_l.log_csv,
+                vcfg_l.log_checkpoints,
+                vcfg_l.log_plot,
+                vcfg_l.log_training_time,
+                vcfg_l.save_val_data,
                 # Decided to not include wandb here since any logging to wandb requires folder
                 # creation. It may happen that a user does not want any local logging, but wants to
                 # log to wandb. This cannot be done without creating a local folder.
             ]
         )
-        if has_log and not args_l.create_folder:
+        if has_log and not vcfg_l.create_folder:
             raise ValueError("You enabled a logger but create_folder is False.")
 
-        log_val = args_l.log_val_data_to_disk or args_l.wandb.log_val_data_to_wandb
-        if args_l.save_val_data and not log_val:
+        log_val = vcfg_l.log_val_data_to_disk or vcfg_l.wandb.log_val_data_to_wandb
+        if vcfg_l.save_val_data and not log_val:
             raise ValueError("You need to log to disk or wandb if save_val_data is True.")
