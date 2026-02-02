@@ -1,9 +1,10 @@
 """Unit tests for venturi.config instantiate and get_target functions."""
 
+from functools import partial
+
 import pytest
 import torch
 import torch.nn as nn
-from functools import partial
 
 from venturi.config import Config, get_target, instantiate
 

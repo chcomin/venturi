@@ -1,18 +1,16 @@
 """Unit tests for venturi._util utility functions."""
 
-import os
-from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from venturi.config import Config
 from venturi._util import (
     generate_name_from_config,
     get_next_name,
     is_rank_zero,
     silence_lightning,
 )
+from venturi.config import Config
 
 
 class TestGenerateNameFromConfig:

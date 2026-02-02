@@ -1,16 +1,14 @@
 """Unit tests for venturi._util callback classes."""
 
+from unittest.mock import MagicMock
+
+import pandas as pd
 import pytest
 import torch
-import torch.nn as nn
-import pandas as pd
-from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch, mock_open
-from datetime import datetime
 
 from venturi._util import (
-    PlottingCallback,
     ImageSaveCallback,
+    PlottingCallback,
     TrainingTimeLoggerCallback,
 )
 
@@ -290,5 +288,5 @@ class TestTrainingTimeLoggerCallback:
         assert "Training ended at:" in content
         
         # Verify format with timestamps
-        lines = content.strip().split('\n')
+        lines = content.strip().split("\n")
         assert len(lines) == 2

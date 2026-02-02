@@ -1,7 +1,7 @@
 """Unit tests for venturi.core.DataModule class."""
 
 import os
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import patch
 
 import pytest
 import torch

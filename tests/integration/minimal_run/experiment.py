@@ -1,15 +1,18 @@
 """Absoulte minimal experiment run using example configuration files."""
 
-from pathlib import Path
-EXAMPLE_DIR = Path("../../../examples/basic_usage/")
 import sys
-sys.path.insert(0, str(EXAMPLE_DIR))
+from pathlib import Path
 
 import torch
-from torch import nn
 import torchmetrics
+from torch import nn
 
 from venturi import Config, Experiment
+
+EXAMPLE_DIR = Path("../../../examples/basic_usage/")
+
+sys.path.insert(0, str(EXAMPLE_DIR))
+
 
 
 def _get_simple_cnn(vcfg):

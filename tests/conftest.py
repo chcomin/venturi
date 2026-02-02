@@ -1,9 +1,10 @@
 import pytest
 import torch
 import torch.nn as nn
-
 import torchmetrics
+
 from venturi.config import Config
+
 
 def _get_simple_dataset(vcfg):
     class SimpleDataset(torch.utils.data.Dataset):

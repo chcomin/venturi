@@ -2,10 +2,13 @@ logging:
   create_folder: true
   run_path: _results
   overwrite_existing: true
+  log_checkpoints: true
+  save_model_every_n_epochs: 1
+  save_top_k_models: 0
 
 training:
   trainer_params:
-    max_epochs: 20
-  resume_from_checkpoint: "best_model_epoch=7_val_loss=0.6083.ckpt"
+    max_epochs: 10
+  resume_from_checkpoint: #last.ckpt
 
 

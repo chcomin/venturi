@@ -1,16 +1,13 @@
 """Unit tests for venturi.core.Experiment class."""
 
+from unittest.mock import MagicMock, PropertyMock, patch
+
 import pytest
 import torch
-from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch, PropertyMock
-import sys
-
-from venturi.config import Config
-from venturi.core import Experiment, DataModule, TrainingModule
 
 # Import the helper functions from conftest to make them available in scope
-from tests.conftest import _get_simple_dataset, _get_simple_cnn, _get_metrics
+from venturi.config import Config
+from venturi.core import DataModule, Experiment, TrainingModule
 
 
 class TestExperimentInit:
@@ -31,7 +28,7 @@ class TestExperimentInit:
         seed_value = 12345
         base_vcfg.seed = seed_value
         
-        with patch('pytorch_lightning.seed_everything') as mock_seed:
+        with patch("pytorch_lightning.seed_everything") as mock_seed:
             exp = Experiment(base_vcfg)
             mock_seed.assert_called()
 
@@ -220,8 +217,8 @@ class TestExperimentTrainer:
         trainer = exp.get_trainer()
         
         assert trainer is not None
-        assert hasattr(trainer, 'fit')
-        assert hasattr(trainer, 'test')
+        assert hasattr(trainer, "fit")
+        assert hasattr(trainer, "test")
 
 
 class TestExperimentFit:
@@ -238,9 +235,9 @@ class TestExperimentFit:
         exp = Experiment(base_vcfg)
         
         # Mock trainer.fit to avoid actual training
-        with patch('pytorch_lightning.Trainer.fit') as mock_fit:
+        with patch("pytorch_lightning.Trainer.fit") as mock_fit:
             # Mock callback_metrics
-            with patch('pytorch_lightning.Trainer.callback_metrics', new_callable=PropertyMock) as mock_metrics:
+            with patch("pytorch_lightning.Trainer.callback_metrics", new_callable=PropertyMock) as mock_metrics:
                 mock_metrics.return_value = {base_vcfg.training.validation_metric: torch.tensor(0.5)}
                 
                 result = exp.fit()
@@ -266,8 +263,8 @@ class TestExperimentFit:
         
         overrides = {"training": {"trainer_params": {"max_epochs": 5}}}
         
-        with patch('pytorch_lightning.Trainer.fit'):
-            with patch('pytorch_lightning.Trainer.callback_metrics', new_callable=PropertyMock) as mock_metrics:
+        with patch("pytorch_lightning.Trainer.fit"):
+            with patch("pytorch_lightning.Trainer.callback_metrics", new_callable=PropertyMock) as mock_metrics:
                 mock_metrics.return_value = {base_vcfg.training.validation_metric: torch.tensor(0.3)}
                 
                 exp.fit(vcfg_overrides=overrides)
@@ -291,9 +288,9 @@ class TestExperimentTest:
         exp = Experiment(base_vcfg)
         
         # Mock fit and test
-        with patch('pytorch_lightning.Trainer.fit'):
-            with patch('pytorch_lightning.Trainer.test') as mock_test:
-                with patch('pytorch_lightning.Trainer.callback_metrics', new_callable=PropertyMock) as mock_metrics:
+        with patch("pytorch_lightning.Trainer.fit"):
+            with patch("pytorch_lightning.Trainer.test") as mock_test:
+                with patch("pytorch_lightning.Trainer.callback_metrics", new_callable=PropertyMock) as mock_metrics:
                     mock_metrics.return_value = {base_vcfg.training.validation_metric: torch.tensor(0.5)}
                     
                     # First fit
@@ -302,7 +299,7 @@ class TestExperimentTest:
                     # Mock checkpoint callback with PropertyMock
                     mock_checkpoint = MagicMock()
                     mock_checkpoint.best_model_path = str(tmp_path / "test_run" / "models" / "best.ckpt")
-                    with patch.object(type(exp.trainer), 'checkpoint_callback', new_callable=PropertyMock) as mock_cp_prop:
+                    with patch.object(type(exp.trainer), "checkpoint_callback", new_callable=PropertyMock) as mock_cp_prop:
                         mock_cp_prop.return_value = mock_checkpoint
                         
                         # Then test

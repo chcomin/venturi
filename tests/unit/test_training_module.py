@@ -1,9 +1,10 @@
 """Unit tests for venturi.core.TrainingModule class."""
 
+from unittest.mock import MagicMock
+
 import pytest
 import torch
 import torch.nn as nn
-from unittest.mock import MagicMock, Mock, patch
 
 from venturi.config import Config
 from venturi.core import TrainingModule
@@ -305,7 +306,7 @@ class TestTrainingModuleErrorHandling:
         # Mock trainer with infinite epochs
         module.trainer = MagicMock()
         module.trainer.max_epochs = -1
-        module.trainer.estimated_stepping_batches = float('inf')
+        module.trainer.estimated_stepping_batches = float("inf")
         
         with pytest.raises(ValueError, match="max_epochs.*is set to -1"):
             module._estimate_total_steps()

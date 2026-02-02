@@ -1,11 +1,10 @@
 """Unit tests for venturi._util.LossCollection class."""
 
-import pytest
 import torch
 import torch.nn as nn
 
-from venturi.config import Config
 from venturi._util import LossCollection
+from venturi.config import Config
 
 
 class TestLossCollectionInit:
