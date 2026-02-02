@@ -126,3 +126,6 @@ disallow_untyped_defs = false
 warn_redundant_casts = true
 warn_unused_ignores = true
 allow_redefinition = true
+exclude = [
+    "tests/unit",
+]

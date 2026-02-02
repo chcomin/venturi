@@ -12,11 +12,12 @@ from typing import Any
 import matplotlib
 import pandas as pd
 import torch
+from lightning.fabric.loggers import csv_logs
+from lightning.pytorch import LightningModule, Trainer
+from lightning.pytorch.callbacks import Callback
+from lightning.pytorch.loggers import WandbLogger
+from lightning.pytorch.utilities import rank_zero_only
 from PIL import Image
-from pytorch_lightning import LightningModule, Trainer
-from pytorch_lightning.callbacks import Callback
-from pytorch_lightning.loggers import WandbLogger
-from pytorch_lightning.utilities import rank_zero_only
 from torch import nn
 
 from venturi.config import Config, instantiate
@@ -437,6 +438,13 @@ def silence_lightning():
             if isinstance(logger, logging.Logger):
                 logger.addFilter(lightning_filter)
                 logger.setLevel(logging.ERROR)
+
+def _noop(self): pass
+
+def patch_lightning():
+    """Monkey patches for lightning."""
+    # Avoid Lightning erasing the log directory
+    csv_logs._ExperimentWriter._check_log_dir_exists = _noop # type: ignore
 
 
 def find_key_recursive(data: Config, target_key: str) -> Any:

@@ -177,7 +177,6 @@ training:
   # Name of a checkpoint inside run_path/models to resume training from. When a name is provided, 
   # the overwrite_existing parameter is ignored. Also, a new config.yaml file is created in the
   # experiment folder and the previous config is not overwritten. 
-  # This is an experimental feature!
   resume_from_checkpoint: null
   # Metric to monitor for top k model checkpointing and early stopping
   validation_metric: "val/loss"

@@ -113,7 +113,7 @@ Some examples are provided in the examples directory:
 | Example | Description |
 | :--- | :--- |
 | **[Configuration](examples/0_start_here)** | The core concept: instantiating arbitrary Python objects directly from YAML and mixing multiple config files |
-| **[Basic Usage](examples/basic_usage)** | A complete image segmentation experiment setup |
+| **[Image segmentation](examples/image_segmentation)** | A complete image segmentation experiment setup |
 | **[Base Config](venturi/base_config.yaml)** | The reference file describing all standard Venturi parameters |
 
 ## Design Philosophy

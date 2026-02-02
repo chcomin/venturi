@@ -5,11 +5,11 @@ import os
 import shutil
 from pathlib import Path
 
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 import torch
-from pytorch_lightning.callbacks import Callback, DeviceStatsMonitor, EarlyStopping, ModelCheckpoint
-from pytorch_lightning.loggers import CSVLogger, WandbLogger
-from pytorch_lightning.profilers import PyTorchProfiler
+from lightning.pytorch.callbacks import Callback, DeviceStatsMonitor, EarlyStopping, ModelCheckpoint
+from lightning.pytorch.loggers import CSVLogger, WandbLogger
+from lightning.pytorch.profilers import PyTorchProfiler
 
 from venturi._util import (
     ImageSaveCallback,
@@ -20,6 +20,7 @@ from venturi._util import (
     generate_name_from_config,
     get_next_name,
     is_rank_zero,
+    patch_lightning,
     silence_lightning,
 )
 from venturi.config import Config, instantiate
@@ -28,6 +29,8 @@ if importlib.util.find_spec("wandb") is None:
     _has_wandb = False
 else:
     _has_wandb = True
+
+patch_lightning()
 
 torch.set_float32_matmul_precision("high")
 
@@ -273,15 +276,12 @@ class Experiment:
 
         self.data_module = self.get_data_module()
 
-    def setup_logging(self, stage: str = "fit") -> Path:
+    def setup_logging(self) -> Path:
         """Handles the run_path name expansion and experiment directory creation logic as well
         as lightning and wandb verbosity.
 
         The method must return the main path where logs and checkpoints will be stored.
 
-        Args:
-            stage: Either 'fit' or 'test'.
-        
         Returns:
             Path: The path to the logging directory.
         """
@@ -298,8 +298,12 @@ class Experiment:
         run_path = generate_name_from_config(vcfg_copy, vcfg_l.run_path)
         run_path = Path(run_path)
 
-        # Not fitting, no need to mess with folders
-        if stage != "fit":
+        # Not fitting, no need to mess with folders, but run_path must exist. This should
+        # be done only on rank 0, but doing here makes the code simpler and racing conditions
+        # should be rare since fit has already created the folder.
+        if self._stage != "fit":
+            if not run_path.exists():
+                raise ValueError(f"Run path {run_path} does not exist.")
             return run_path
 
         # The user does not want folder creation
@@ -308,10 +312,17 @@ class Experiment:
 
         # Let rank 0 find a new name and create folders
         if is_rank_zero():
-            # Resume from checkpoint, we just write a new config file
+            vcfg_path = run_path / "config.yaml"
+            # Resume from checkpoint, we just check if path exists and write a new config file
             if self.vcfg.training.resume_from_checkpoint is not None:
-                vcfg_path = run_path / "config.yaml"
-                vcfg_path = get_next_name(vcfg_path)
+                if not run_path.exists():
+                    raise ValueError(
+                        f"Cannot resume from checkpoint, run_path {run_path} does not exist."
+                    )
+                # Rename previous config file to available config_prev_x.yaml
+                prev_vcfg_path = run_path / "config_prev.yaml"
+                prev_vcfg_path = get_next_name(prev_vcfg_path)
+                vcfg_path.rename(prev_vcfg_path)
                 self.vcfg.save(vcfg_path)
                 return run_path
 
@@ -324,7 +335,7 @@ class Experiment:
                     run_path = get_next_name(run_path)
 
             run_path.mkdir(parents=True, exist_ok=True)
-            self.vcfg.save(run_path / "config.yaml")
+            self.vcfg.save(vcfg_path)
 
         if torch.distributed.is_initialized():
             # Broadcast run_path to other processes
@@ -362,6 +373,12 @@ class Experiment:
         loggers: list[pl.loggers.Logger] = []
 
         if vcfg_l.log_csv:
+            metrics_file = run_path / "metrics.csv"
+            if metrics_file.exists() and is_rank_zero():
+                # Condition only happens when resuming from checkpoint. Rename existing file.
+                prev_metrics_file = run_path / "metrics_prev.csv"
+                prev_metrics_file = get_next_name(prev_metrics_file)
+                metrics_file.rename(prev_metrics_file)
             loggers.append(CSVLogger(save_dir=run_path, name="", version=""))
 
         vcfg_w = vcfg_l.wandb
@@ -371,7 +388,9 @@ class Experiment:
                     "WandbLogger requires wandb to be installed. "
                     "Please install it or disable wandb logging."
                 )
-            if is_rank_zero():
+            is_new_run = not self.vcfg.training.resume_from_checkpoint
+            # If a new run and in fit stage, delete any existing wandb run with the same name
+            if is_rank_zero() and is_new_run and self._stage == "fit":
                 delete_wandb_run(vcfg_w.wandb_project, str(run_path))
             loggers.append(
                 WandbLogger(
@@ -579,15 +598,18 @@ class Experiment:
             optimization).
         """
 
+        self._stage = "fit"
+
         if vcfg_overrides is not None:
             self.vcfg.update_from(vcfg_overrides)
 
         self._set_seed()
 
-        if recreate_dataset:
+        # Recreate dataset if needed
+        if recreate_dataset or self.data_module is None:
             self.data_module = self.get_data_module()
 
-        self.run_path = self.setup_logging(stage="fit")
+        self.run_path = self.setup_logging()
         self.model = self.get_model()
         self.trainer = self.get_trainer(extra_callbacks=extra_callbacks)
         # Set checkpoint path if resuming
@@ -596,10 +618,20 @@ class Experiment:
         if ckpt_name is not None:
             ckpt_path = self.run_path / "models" / ckpt_name
 
+        # Train!
         self.trainer.fit(self.model, datamodule=self.data_module, ckpt_path=ckpt_path)
 
         # Return metric (Useful for Optuna)
-        return self.trainer.callback_metrics[self.vcfg.training.validation_metric].item()
+        val_m = self.vcfg.training.validation_metric
+        if val_m in self.trainer.callback_metrics:
+            final_metric = self.trainer.callback_metrics[val_m].item()
+        else:
+            raise ValueError(
+                f"Validation metric {val_m} not found in trainer metrics. "
+                "Is the name correct, and did fit actually run?"
+                )
+
+        return final_metric
 
     def test(
         self,
@@ -627,6 +659,8 @@ class Experiment:
             recreate_dataset: If True, recreates the data module.
         """
 
+        self._stage = "test"
+
         if vcfg_overrides is not None:
             self.vcfg.update_from(vcfg_overrides)
 
@@ -644,7 +678,7 @@ class Experiment:
             self.data_module = self.get_data_module()
 
         if not fit_called:
-            self.run_path = self.setup_logging(stage="test")
+            self.run_path = self.setup_logging()
             self.model = self.get_model()
             self.trainer = self.get_trainer()
 
