@@ -276,7 +276,14 @@ class Config(MutableMapping):
     @staticmethod
     def _validate_no_extra_keys(base: dict, update: dict, prefix=""):
         """Helper to check if update contains keys not in base."""
+        # If doing replacement, ignore extra keys
+        if update.get("_replace_") is True:
+            return
+
         for key, value in update.items():
+            if key == "_replace_":
+                continue
+
             if key not in base:
                 raise ValueError(
                     f"Key '{prefix}{key}' is not present in "
@@ -290,7 +297,14 @@ class Config(MutableMapping):
     def _deep_update_dict(base: dict, update: dict) -> dict:
         """Helper for recursive dictionary updates (in-place modification of base)."""
         for key, value in update.items():
-            if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+            if isinstance(value, dict) and value.get("_replace_") is True:
+                # Create a copy to remove the control flag without mutating input
+                new_value = value.copy()
+                new_value.pop("_replace_")
+                # Overwrite the key, stopping recursion
+                base[key] = new_value
+            
+            elif key in base and isinstance(base[key], dict) and isinstance(value, dict):
                 Config._deep_update_dict(base[key], value)
             else:
                 base[key] = value
@@ -350,6 +364,10 @@ def instantiate(config: Config | dict | list | Any, partial: bool | None = None)
     have a '_target_' key specifying the class or function to create. The remaining keys are treated
     as arguments to the target's constructor or factory function.
 
+    Note: While _target_ can be just the name of a class of function in the current scope, it is
+    recommended to use fully qualified dotted paths (e.g., 'module.submodule.ClassName') because
+    it is more robust and avoids ambiguity.
+
     Args:
         config: The configuration object.
         partial: If True, forces return of a partial. That is, a factory function that can be
@@ -358,8 +376,9 @@ def instantiate(config: Config | dict | list | Any, partial: bool | None = None)
 
     Special keywords:
     - _target_: The class or function to create. Can be a dotted path or a name in scope.
-    - _partial_: If True, returns a partial (factory).
+    - _replace_: If True, replaces existing config when merging (stops recursion).
     - _args_: List of positional arguments to pass to the target.
+    - _partial_: If True, returns a partial (factory).
     - _raw_: If True, returns the config as-is (stops recursion).
     """
 
@@ -419,7 +438,7 @@ def instantiate(config: Config | dict | list | Any, partial: bool | None = None)
             args = [instantiate(arg) for arg in v]
             continue
 
-        if k not in ("_target_", "_partial_", "_args_", "_raw_"):
+        if k not in ("_target_", "_partial_", "_args_", "_raw_", "_replace_"):
             kwargs[k] = instantiate(v)
 
     # Check if partial

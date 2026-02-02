@@ -37,14 +37,14 @@ This creates a [base_config.yaml](venturi/base_config.yaml) file containing the 
 from venturi import Config, Experiment
 
 # Load Venturi defaults
-args = Config("base_config.yaml")
+vcfg = Config("base_config.yaml")
 
 # Add custom configuration for dataset, model and loss function
-args.update_from_yaml("experiments/my_custom_config.yaml")
+vcfg.update_from_yaml("experiments/my_custom_config.yaml")
 
 # Initialize and train. All training artifacts, including
 # performance metrics and model checkpoints are logged.
-experiment = Experiment(args)
+experiment = Experiment(vcfg)
 experiment.fit()
 ```
 
@@ -58,18 +58,18 @@ from venturi import TrainingModule, Experiment
 class CustomTrainingModule(TrainingModule):
   def training_step(self, batch):
     # Get all experiment settings
-    args = self.args
+    vcfg = self.vcfg
     # Create custom logic for training step
     ...
 
 class CustomExperiment(Experiment):
   def get_loggers(self):
-    args = self.args
+    vcfg = self.vcfg
     # Add your own logic for storing performance metrics
     ...
 
 ...
-experiment = CustomExperiment(args)
+experiment = CustomExperiment(vcfg)
 experiment.fit()
 ```
 

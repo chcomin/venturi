@@ -1,4 +1,5 @@
 model:
+  _replace_: true
   setup:
     _target_: MyViTModel
   params:

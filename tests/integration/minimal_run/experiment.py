@@ -26,7 +26,8 @@ def _get_simple_dataset(vcfg):
         def __getitem__(self, idx):
             return torch.randn(1, 28, 28), torch.randint(0, 2, (1, 28, 28)).float()
     
-    return SimpleDataset(16), SimpleDataset(16)
+    return {
+        "train_ds": SimpleDataset(16), "val_ds": SimpleDataset(16), "test_ds": SimpleDataset(16)}
 
 def _get_metrics(vcfg):
     return torchmetrics.MetricCollection(
@@ -37,9 +38,9 @@ def _get_metrics(vcfg):
 
 if __name__ == "__main__":  
 
-    args = Config(EXAMPLE_DIR / "config" / "base_config.yaml")
-    args.update_from_yaml("config/test_config.yaml")
+    vcfg = Config(EXAMPLE_DIR / "config" / "base_config.yaml")
+    vcfg.update_from_yaml("config/test_config.yaml")
 
-    experiment = Experiment(args)
+    experiment = Experiment(vcfg)
 
     final_metric = experiment.fit()
