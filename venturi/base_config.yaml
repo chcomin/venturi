@@ -26,7 +26,7 @@ logging:
   # Log total training time in a file called training_time.txt in the run_path folder
   log_training_time: true
   # tqdm progress bar during training
-  enable_progress_bar: false
+  enable_progress_bar: true
   # Lightning tends to print some information to the console, this setting silences it
   # Notice that this also suppress warnings and performance tips from Lightning.
   silence_lightning: true

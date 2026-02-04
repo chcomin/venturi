@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import matplotlib
+import optuna
 import pandas as pd
 import torch
 from lightning.fabric.loggers import csv_logs
@@ -102,6 +103,189 @@ class LossCollection(nn.Module):
     def clone(self, prefix: str = "") -> "LossCollection":
         """Make a copy of the class."""
         return self.__class__(deepcopy(self.vcfg_loss), self.return_logs, prefix)
+
+class OptunaConfigSampler:
+    """Parses a hierarchical search space configuration and samples values 
+    using an Optuna trial.
+
+    The search space configuration is defined as a nested dictionary where
+    hyperparameters can be specified with distributions. For instance:
+
+    params:
+        lr:
+            type: float
+            low: 1e-4
+            high: 1e-2
+            log: true
+        momentum:
+            type: float
+            low: 0.5
+            high: 0.99
+
+    The class also supports branching on categorical choices. For example:
+
+    model:
+        type: categorical
+        choices: [cnn, transformer]
+        cnn:
+            setup:
+                _target_: models.get_cnn
+            num_layers:
+                type: int
+                low: 2
+                high: 10
+        transformer:
+            setup:
+                _target_: models.get_vit
+            num_heads:
+                type: int
+                low: 2
+                high: 8
+
+    If necessary, branching can also be done on integer indices mapping to lists of options:
+
+    training:
+        optimizer:
+            type: int
+            low: 0
+            high: 1
+            _options_:
+                - sgd:
+                    lr:
+                        type: float
+                        low: 1e-4
+                        high: 1e-2
+                - adam:
+                    lr:
+                        type: float
+                        low: 1e-5
+                        high: 1e-3
+    """
+    
+    def __init__(self, search_space: Config | dict):
+        """Args:
+        search_space: A configuration (Config or dict) defining the search space.
+        """
+        if hasattr(search_space, "to_dict"):
+            search_space = search_space.to_dict()
+        self.search_space = search_space
+
+    def sample(self, trial: optuna.Trial, include_category: bool = True) -> Config:
+        """Sample parameters from the search space.
+
+        When branching on categorical choices, if `include_category` is True,
+        the sampled parameters will include the category name in the dot-notation path.
+        For instance, instead of:
+            "parent.params.value"
+        it becomes:
+            "parent.choice_name.params.value"
+
+        Args:
+            trial: The Optuna trial object.
+            include_category: If True, appends the categorical choice to the parameter name.
+
+        Returns:
+            A Config object with sampled parameters.
+        """
+
+        output = self._recurse(
+            self.search_space, trial, prefix="", include_category=include_category)
+
+        return Config(output)
+
+    def _recurse(self, node: Any, trial: optuna.Trial, prefix: str, include_category: bool) -> Any:
+        # Base case: Not a dict
+        if not isinstance(node, dict):
+            return node
+
+        # Check for hyperparameter definition
+        if "type" in node and node["type"] in ["int", "float", "categorical"]:
+            return self._sample_distribution(node, trial, prefix, include_category)
+
+        # Recursive case: Standard container
+        sampled_dict = {}
+        for key, value in node.items():
+            # Build dot-notation path
+            new_prefix = f"{prefix}.{key}" if prefix else key
+            sampled_dict[key] = self._recurse(value, trial, new_prefix, include_category)
+            
+        return sampled_dict
+
+    def _sample_distribution(
+            self, node: dict, trial: optuna.Trial, name: str, include_category: bool) -> Any:
+        dist_type = node["type"]
+
+        if dist_type == "categorical":
+            choices = node["choices"]
+            choice_key = trial.suggest_categorical(name, choices)
+
+            if choice_key in node:
+                branch_config = node[choice_key]
+                
+                if include_category:
+                    next_prefix = f"{name}.{choice_key}"
+                else:
+                    next_prefix = name
+                
+                sampled_branch = self._recurse(branch_config, trial, next_prefix, include_category)
+                
+                if isinstance(sampled_branch, dict):
+                    sampled_branch["_replace_"] = True
+                    
+                return sampled_branch
+            
+            return choice_key
+        
+        elif dist_type == "int":
+            val = trial.suggest_int(
+                name, node["low"], node["high"], 
+                step=node.get("step", 1), log=node.get("log", False)
+            )
+
+            # Check if the integer maps to a list of options (Branching)
+            if "_options_" in node:
+                options_list = node["_options_"]
+                
+                if val < 0 or val >= len(options_list):
+                    raise ValueError(
+                        f"Sampled index {val} is out of bounds for options list at '{name}'")
+                
+                selected_branch = options_list[val]
+                
+                # Strategy: If the branch is a dict with exactly ONE key (e.g. {'cnn': ...}), 
+                # we treat that key as the branch name (better for readability/Optuna paths).
+                # Otherwise, use the integer index as the name.
+                if isinstance(selected_branch, dict) and len(selected_branch) == 1:
+                    branch_name = next(iter(selected_branch.keys()))
+                    branch_content = selected_branch[branch_name]
+                else:
+                    branch_name = str(val)
+                    branch_content = selected_branch
+
+                if include_category:
+                    next_prefix = f"{name}.{branch_name}"
+                else:
+                    next_prefix = name
+
+                sampled_content = self._recurse(
+                    branch_content, trial, next_prefix, include_category)
+                
+                # Inject Replacement Flag
+                if isinstance(sampled_content, dict):
+                    sampled_content["_replace_"] = True
+                
+                return sampled_content
+
+            return val
+
+        elif dist_type == "float":
+            return trial.suggest_float(
+                name, node["low"], node["high"], 
+                step=node.get("step"), log=node.get("log", False)
+            )
+        
+        else:
+            raise ValueError(f"Unknown distribution type '{dist_type}' at {name}")
 
 
 class PlottingCallback(Callback):

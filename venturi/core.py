@@ -1,21 +1,25 @@
 """Core classes for Venturi experiments."""
 
+import gc
 import importlib
 import os
 import shutil
 from pathlib import Path
 
 import lightning.pytorch as pl
+import optuna
 import torch
 from lightning.pytorch.callbacks import Callback, DeviceStatsMonitor, EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import CSVLogger, WandbLogger
 from lightning.pytorch.profilers import PyTorchProfiler
+from optuna.integration import PyTorchLightningPruningCallback
 
 from venturi._util import (
-    ImageSaveCallback,
-    LossCollection,
-    PlottingCallback,
-    TrainingTimeLoggerCallback,
+    ImageSaveCallback,  # For saving validation images
+    LossCollection,  # For handling multiple losses
+    OptunaConfigSampler,  # For Optuna hyperparameter sampling
+    PlottingCallback,  # For plotting metrics
+    TrainingTimeLoggerCallback,  # For logging training time
     delete_wandb_run,
     generate_name_from_config,
     get_next_name,
@@ -126,10 +130,14 @@ class TrainingModule(pl.LightningModule):
         self.val_loss = loss_fn.clone(prefix="val/")
 
         # Performance Metrics
-        get_metrics = instantiate(self.vcfg.metrics.setup, partial=True)
-        metrics = get_metrics(self.vcfg)
-        self.val_metrics = metrics.clone(prefix="val/")
-        self.test_metrics = metrics.clone(prefix="test/")
+        if "metrics" in self.vcfg:
+            get_metrics = instantiate(self.vcfg.metrics.setup, partial=True)
+            metrics = get_metrics(self.vcfg)
+            self.val_metrics = metrics.clone(prefix="val/")
+            self.test_metrics = metrics.clone(prefix="test/")
+        else:
+            self.val_metrics = None
+            self.test_metrics = None
 
     def forward(self, x):
         """Forward pass through the model."""
@@ -160,8 +168,9 @@ class TrainingModule(pl.LightningModule):
         if len(loss_logs) > 1:
             self.log_dict(loss_logs, on_step=False, on_epoch=True, prog_bar=False, batch_size=bs)
 
-        output = self.val_metrics(logits, y)
-        self.log_dict(output, on_step=False, on_epoch=True, prog_bar=False, batch_size=bs)
+        if self.val_metrics is not None:
+            output = self.val_metrics(logits, y)
+            self.log_dict(output, on_step=False, on_epoch=True, prog_bar=False, batch_size=bs)
 
         # Return logits for plotting callbacks
         return {"loss": loss, "logits": logits.detach()}
@@ -172,8 +181,9 @@ class TrainingModule(pl.LightningModule):
         logits = self(x)
 
         bs = x.size(0)
-        output = self.test_metrics(logits, y)
-        self.log_dict(output, on_step=False, on_epoch=True, prog_bar=False, batch_size=bs)
+        if self.test_metrics is not None:
+            output = self.test_metrics(logits, y)
+            self.log_dict(output, on_step=False, on_epoch=True, prog_bar=False, batch_size=bs)
 
     def configure_optimizers(self):
         """Configures optimizers and learning rate schedulers based on the config file."""
@@ -312,7 +322,6 @@ class Experiment:
 
         # Let rank 0 find a new name and create folders
         if is_rank_zero():
-            vcfg_path = run_path / "config.yaml"
             # Resume from checkpoint, we just check if path exists and write a new config file
             if self.vcfg.training.resume_from_checkpoint is not None:
                 if not run_path.exists():
@@ -320,10 +329,11 @@ class Experiment:
                         f"Cannot resume from checkpoint, run_path {run_path} does not exist."
                     )
                 # Rename previous config file to available config_prev_x.yaml
+                current_vcfg_path = run_path / "config.yaml"
                 prev_vcfg_path = run_path / "config_prev.yaml"
                 prev_vcfg_path = get_next_name(prev_vcfg_path)
-                vcfg_path.rename(prev_vcfg_path)
-                self.vcfg.save(vcfg_path)
+                current_vcfg_path.rename(prev_vcfg_path)
+                self.vcfg.save(current_vcfg_path)
                 return run_path
 
             if run_path.exists():
@@ -335,7 +345,7 @@ class Experiment:
                     run_path = get_next_name(run_path)
 
             run_path.mkdir(parents=True, exist_ok=True)
-            self.vcfg.save(vcfg_path)
+            self.vcfg.save(run_path / "config.yaml")
 
         if torch.distributed.is_initialized():
             # Broadcast run_path to other processes
@@ -707,6 +717,48 @@ class Experiment:
         return self.trainer.test(  # type: ignore
             self.model, datamodule=self.data_module, ckpt_path=ckpt_path
         )
+    
+    def optimize(self, vcfg_space, vcfg_optuna: Config | None = None):
+        """Optimize hyperparameters using Optuna.
+
+        Args:
+            vcfg_space: Configuration defining the hyperparameter search space.
+            vcfg_optuna: Configuration defining the Optuna study parameters. If None, uses
+            self.vcfg.optuna.
+        """
+
+        if vcfg_optuna is None:
+            if "optuna" not in self.vcfg:
+                raise ValueError("No Optuna study configuration provided.")
+            vcfg_optuna = self.vcfg.optuna
+
+        # Optuna objective function. This function is here to not pollute the class namespace.
+        # This is not safe for pickling in case of distributed optimization with spawned processes,
+        # but it is unlikely that .optimize() will be called in spawned processes.
+        def objective(trial: optuna.Trial):
+            gc.collect()
+            torch.cuda.empty_cache()
+            
+            # Sample hyperparameters
+            overrides = optuna_config_sampler.sample(trial, include_category=False)
+
+            pruning_cb = PyTorchLightningPruningCallback(
+                trial, monitor=self.vcfg.training.validation_metric)
+            
+            return self.fit(overrides, extra_callbacks=[pruning_cb])  
+
+        #vcfg_optuna.study.storage = vcfg_optuna.study.storage.replace("///", f"///{self.run_path}/")
+
+        optuna_config_sampler = OptunaConfigSampler(vcfg_space)
+
+        # Create Optuna study
+        vcfg_os = instantiate(vcfg_optuna.study)
+        study = optuna.create_study(**vcfg_os)
+        
+        # Optimize, passing the experiment and search space to the objective function
+        study.optimize(objective, **vcfg_optuna.study_optimize)
+        
+        return study  
 
     def _set_seed(self):
         pl.seed_everything(self.vcfg.seed, workers=True, verbose=False)
@@ -746,7 +798,7 @@ class Experiment:
             ]
         )
         if has_log and not vcfg_l.create_folder:
-            raise ValueError("You enabled a logger but create_folder is False.")
+            raise ValueError("You have a logger enabled but create_folder is False.")
 
         log_val = vcfg_l.log_val_data_to_disk or vcfg_l.wandb.log_val_data_to_wandb
         if vcfg_l.save_val_data and not log_val:
