@@ -1,0 +1,200 @@
+#### Base configuration file for Venturi experiments. ####
+
+# The global random seed for reproducibility. 
+seed: 0
+
+logging:
+  # By default, a run_path folder is always created for each run. You can disable it, for
+  # instance, when doing hyperparameter search where multiple runs are done without logging.
+  # But notice that this may have side effects if any logger or disk writing is enabled since
+  # they write to a folder.
+  create_folder: true
+  # Can be base_name/subfolder/run_name, the full path will be created. You can use any
+  # variable from the config using {variable_name}, for instance 
+  # run_path: "runs/name_{lr:.3f}_{batch_size}"
+  run_path: results
+  # If true, erases the content if a run_path with the same name exists
+  # If false, creates a new folder named run_path_2, run_path_3, ...
+  overwrite_existing: false
+  # Enable or disable logging to csv file
+  log_csv: true
+  # Enable or disable model checkpoints. Checkpoints can be configured below
+  log_checkpoints: false
+  # Enable plotting losses and performance metrics. Plotting requires log_csv to be true since
+  # the data is read from the csv file
+  log_plot: true
+  # Log total training time in a file called training_time.txt in the run_path folder
+  log_training_time: true
+  # tqdm progress bar during training
+  enable_progress_bar: true
+  # Lightning tends to print some information to the console, this setting silences it
+  # Notice that this also suppress warnings and performance tips from Lightning.
+  silence_lightning: true
+  # csv and wandb training (not validation) log frequency in gradient steps, if they are enabled
+  log_every_n_steps: 4
+  # Save model checkpoint every n epochs if log_checkpoints is true
+  save_model_every_n_epochs: 1
+  # Number of top models to save based on validation_metric if log_checkpoints is true
+  save_top_k_models: 1
+  # Plot configuration if log_plot is true. Two subplots are made with plt.subplots(1, 2). Any
+  # logged metric can be inserted on the left and right plots.
+  plot:
+    left_plot:
+      metrics:
+        - "train/loss"
+      ylim: 
+        min: 0.0
+        max: null
+    right_plot:
+      metrics:
+        - "val/loss"
+      ylim: 
+        min: 0.0
+        max: null
+  # Enable/disable validation data saving. Results can be saved to disk and/or wandb.
+  # Note: it is assumed that model outputs are images. If not, custom code is needed.
+  save_val_data: false
+  # Indices of validation data samples to save. Only useful for single device training
+  val_data_indices: [0, 1, 2, 3]
+  # When save_val_data is true, log validation images to disk
+  log_val_data_to_disk: false
+  wandb:
+    # Enable/disable wandb logging. All metrics will be send to wandb if true.
+    log_wandb: false
+    # Suppress wandb prints to the console. Notice that this might also suppress errors and warnings.
+    silence_wandb: true
+    wandb_project: "venturi"
+    wandb_group: 
+    # When save_val_data and log_wandb are true, validation images can also be logged to wandb
+    log_val_data_to_wandb: false
+    # Names to use for masks in wandb UI when log_val_data_to_wandb is true
+    class_labels: ["Background", "Foreground"]
+   
+dataset:
+  setup:
+    # Function that returns the dataset. The function must accept as first parameter a 
+    # configuration object (this yaml file converted to a Namespace) and return a dictionary with
+    # the keys 'train_ds', 'val_ds' and optionally 'test_ds' containing the respective datasets.
+    # See the examples in the venturi repository.
+    _target_: <dot.path.to.function>  # Change this!!
+  # You can add any parameters needed for dataset creation here, and use them in the dataset 
+  # creation function above. For instance
+  #num_train_samples: 100
+  #num_classes: 10
+  #img_size: [224, 224]
+  # Parameters for the dataloaders.
+  train_dataloader:
+    _target_: torch.utils.data.DataLoader
+    batch_size: 8
+    shuffle: true
+    num_workers: 0
+    persistent_workers: false
+    pin_memory: true
+  val_dataloader:
+    _target_: torch.utils.data.DataLoader
+    batch_size: 8
+    shuffle: false
+    num_workers: 0
+    persistent_workers: false
+    pin_memory: true
+
+model:
+  # Model creation function. The function receives as input this yaml file. It is the same
+  # logic as for the dataset setup function. See the examples in the venturi repository.
+  setup:
+    _target_: <dot.path.to.function>  # Change this!!
+
+losses:
+  # Flexible definition of losses. You can add any loss here and their values will be combined
+  # and automatically logged during training and validation. Each loss must have an 'instance'
+  # field indicating the loss class and its parameters. It can also have a 'loss_weight' field
+  # indicating the weight of each loss in the final combined loss. See the examples in the
+  # venturi repository.
+  # Example:
+  #cross_entropy:
+  #  instance:
+  #    _target_: torch.nn.CrossEntropyLoss
+
+metrics:
+  # Function that returns a torchmetrics.MetricCollection object with all performance metrics
+  # The function receives as input this yaml file. See the examples in the venturi repository.
+  # The metrics are not as flexible as the losses (being able to define each of them in this
+  # yaml file) because metrics are rarely hyperparameters to tune. 
+  setup:
+    _target_: <dot.path.to.function>  # Change this!!
+
+training:
+  # Optimizer class and respective parameters
+  optimizer:
+    _target_: "torch.optim.SGD"
+    lr: 0.01
+    momentum: 0.9
+    weight_decay: 0.0001
+  lr_scheduler:
+    # Scheduler class and respective parameters
+    instance:
+      _target_: "torch.optim.lr_scheduler.PolynomialLR"
+      power: 1.0
+    # lr_scheduler_config dictionary to pass to LightningModule.configure_optimizers
+    scheduler_config:
+      interval: "step"
+    # Some schedulers need to know the total number of training iterations or epochs. You can
+    # set it in the scheduler parameters above. Alternatively, you can set needs_total_iters to
+    # true and Venturi will try to automatically estimate the total number of training
+    # iterations or epochs
+    needs_total_iters: true
+  # Parameters for the main Lightning Trainer
+  trainer_params:
+    # Number of  GPUs to use.
+    devices: 1
+    # Lightning uses DDP by default if multiple GPUs are available. It also supports fsdp and
+    # deepspeed for training models that do not fit in GPU memory. But in such cases it is best
+    # to pass a FSDPStrategy or DeepSpeedStrategy object to the strategy parameter with the
+    # desired configuration.
+    strategy: auto
+    # Relevant precisions: 
+    # 32-true: full precision
+    # 16-mixed: best for older GPUs with Tensor Cores (RTX 20xx, V100, T4)
+    # bf16-mixed: best for Ampere (RTX 30xx, A100 as well as RTX 40xx)
+    # transformer-engine: best for Hopper and newer (H100, RTX 5090, RTX PRO 5000)
+    #   but can lead to some stability issues since it is FP8 based
+    precision: "bf16-mixed" 
+    max_epochs: 10
+    # Gradient accumulation steps
+    accumulate_grad_batches: 1
+    # Gradient norm clipping. If null, no clipping is applied
+    gradient_clip_val: null
+    # Validate every n epochs
+    check_val_every_n_epoch: 1
+    # Enable deterministic training for reproducibility. Can also be set to "warn" to use
+    # deterministic algorithms whenever possible, and warn when nondeterministic operations are
+    # used.
+    deterministic: false
+    # If true, enables the benchmark mode in cudnn. This usually leads to faster training
+    benchmark: false
+    # Additonal Trainer kwargs
+    kwargs: {}
+  # Name of a checkpoint inside run_path/models to resume training from. When a name is provided, 
+  # the overwrite_existing parameter is ignored. Also, a new config.yaml file is created in the
+  # experiment folder and the previous config is not overwritten. 
+  resume_from_checkpoint: null
+  # Metric to monitor for top k model checkpointing and early stopping
+  validation_metric: "val/loss"
+  # Stop training if no improvement after 'patience' validation runs
+  patience: null 
+  # Whether to maximize or minimize the validation metric
+  maximize_validation_metric: false
+  # If the validation metric gets worse than this threshold, training stops
+  divergence_threshold: null
+  # Enable the profiler to analyze performance bottlenecks. The profiler waits for 1 step,
+  # warms up for 1 step, and then profiles for 4 steps. Then it repeats the cycle one more
+  # time. This means that two profiling traces will be created in the experiment folder.
+  profile: false
+  # Profiler output level. In general, higher values lead to more detailed profiling but also
+  # higher overhead and final file size. Valid values are:
+  # 0: basic timing 1: flops, 2: record shapes, 3: memory, 4: stack, 5: core occupancy and dram throughput
+  profile_verbosity: 0
+  # If true, monitors GPU and CPU usage and logs it to the csv and wandb logger. Note that more
+  # than 100 metrics wil be logged. It is recommended to use other tools like nvtop and btop to
+  # monitor GPU and CPU usage.
+  monitor_device_stats: false

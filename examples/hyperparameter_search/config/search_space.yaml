@@ -1,0 +1,50 @@
+model:
+  type: categorical
+  choices: [cnn, transformer]
+
+  cnn:
+    setup:
+      _target_: scripts.models.get_cnn
+    num_layers:
+      type: int
+      low: 2
+      high: 10
+      step: 2
+    num_filters:
+      type: int
+      low: 16
+      high: 64
+      step: 16
+
+  transformer:
+    setup:
+      _target_: scripts.models.get_vit
+    num_layers:
+      type: int
+      low: 2
+      high: 10
+      step: 2
+    hidden_dim:
+      type: int
+      low: 16
+      high: 64
+      step: 16
+
+training:
+  optimizer:
+    type: categorical
+    choices: [sgd, adam]
+    sgd:
+      _target_: torch.optim.SGD
+      lr:
+        type: float
+        log: true
+        low: 1.0e-4
+        high: 1.0e-1
+    adam:
+      _target_: torch.optim.Adam
+      lr:
+        type: float
+        log: true
+        low: 1.0e-4
+        high: 1.0e-1

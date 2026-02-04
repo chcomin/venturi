@@ -7,3 +7,4 @@ ___*.py
 /dist
 /build
 *.egg-info
+*.sqlite3
