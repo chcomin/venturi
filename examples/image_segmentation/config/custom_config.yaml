@@ -73,6 +73,7 @@ model:
     num_output_channels: 1  # 1 channel output for binary segmentation
     base_filters: 16
     num_layers: 4
+
 losses:
   cross_entropy:
     instance:
