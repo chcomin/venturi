@@ -28,6 +28,8 @@ dependencies = [
     "tqdm>=4.67.1",
     "PyYAML>=6.0.3",
     "Pillow>=12.1.0",
+    "optuna>=4.7.0",
+    "optuna-integration>=4.7.0",
 ]
 
 dynamic = ["version"]
@@ -50,8 +52,7 @@ dev = [
     "twine>=5.0",        
     "build>=1.4",        
 ]
-examples = [
-    "optuna>=4.7.0",
+all = [
     "torchvision>=0.24.1",
     "wandb>=0.23.1",
 ]

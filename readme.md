@@ -42,10 +42,26 @@ vcfg = Config("base_config.yaml")
 # Add custom configuration for dataset, model and loss function
 vcfg.update_from_yaml("experiments/my_custom_config.yaml")
 
-# Initialize and train. All training artifacts, including
+# Initialize, train and test. All training artifacts, including
 # performance metrics and model checkpoints are logged.
 experiment = Experiment(vcfg)
 experiment.fit()
+results = experiment.test()
+```
+
+### Optimize experiment hyperparameters
+
+```python
+
+vcfg = ... # Load configuration
+experiment = Experiment(vcfg)
+
+# Load hyperparameter search space
+vcfg_space = Config("config/search_space.yaml")
+# Run hyperparameter search
+study = experiment.optimize(vcfg_space)
+
+print("Best parameters:", study.best_params)
 ```
 
 ### Change a core Venturi component
@@ -81,10 +97,10 @@ Install the core package:
 pip install venturi
 ```
 
-To run the provided examples, install the optional dependencies:
+To enable Weights & Biases logging and to run the provided examples, install all dependencies:
 
 ```bash
-pip install "venturi[examples]"
+pip install "venturi[all]"
 ```
 
 There is no conda package yet. To install on conda you can do
@@ -114,6 +130,7 @@ Some examples are provided in the examples directory:
 | :--- | :--- |
 | **[Configuration](examples/0_start_here)** | The core concept: instantiating arbitrary Python objects directly from YAML and mixing multiple config files |
 | **[Image segmentation](examples/image_segmentation)** | A complete image segmentation experiment setup |
+| **[Hyperparameter search](examples/hyperparameter_search)** | Hyperparameter optimization using Optuna |
 | **[Base Config](venturi/base_config.yaml)** | The reference file describing all standard Venturi parameters |
 
 ## Design Philosophy

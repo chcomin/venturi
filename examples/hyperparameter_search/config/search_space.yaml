@@ -1,11 +1,13 @@
 model:
   type: categorical
   choices: [cnn, transformer]
-
+  # Since the type of 'model' is categorical, we can define the parameters for each choice
+  # Think of these as an if conditional block. "If model == cnn, then use these parameters"
   cnn:
     setup:
       _target_: scripts.models.get_cnn
     num_layers:
+      # Define a hyperparameter search space for num_layers, same syntax as Optuna's IntDistribution
       type: int
       low: 2
       high: 10
