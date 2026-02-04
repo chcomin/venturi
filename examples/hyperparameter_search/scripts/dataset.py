@@ -1,8 +1,16 @@
+"""Mock dataset for hyperparameter search example."""
+
 import torch
+
 
 class SimpleDataset(torch.utils.data.Dataset):
     """A mock dataset that generates random images and labels."""
     def __init__(self, num_classes, length=100, image_size=32):
+        """Args:
+        num_classes: Number of classes in the dataset.
+        length: Length of the dataset.
+        image_size: Size of the images (assumed square).
+        """
         self.num_classes = num_classes
         self.length = length
         self.image_size = image_size
@@ -18,6 +26,7 @@ class SimpleDataset(torch.utils.data.Dataset):
 
 
 def get_dataset(vcfg):
+    """Creates mock training and validation datasets based on the configuration."""
 
     return {
         "train_ds": SimpleDataset(vcfg.dataset.num_classes), 

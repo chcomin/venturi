@@ -54,6 +54,7 @@ class MockExperiment(Experiment):
     """Mock experiment that uses the MockTrainingModule."""
 
     def get_model(self):
+        """Override base TrainingModule."""
         return MockTrainingModule(self.vcfg)
 
 if __name__ == "__main__":

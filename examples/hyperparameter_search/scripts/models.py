@@ -39,6 +39,7 @@ class SimpleCNN(nn.Module):
         self.layers = nn.Sequential(*layers)
 
     def forward(self, x):
+        """Forward pass through the model."""
         return self.layers(x)
     
 class SimpleViT(nn.Module):
@@ -73,9 +74,11 @@ class SimpleViT(nn.Module):
         )
 
     def forward(self, x):
+        """Forward pass through the model."""
         return self.model(x)
     
 def get_cnn(vcfg):
+    """Instantiate a SimpleCNN model based on the provided configuration."""
     return SimpleCNN(
         num_layers=vcfg.model.num_layers,
         num_filters=vcfg.model.num_filters,

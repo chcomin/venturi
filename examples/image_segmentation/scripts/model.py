@@ -18,6 +18,12 @@ class SimpleCNN(nn.Module):
     """A simple CNN model for image segmentation."""
 
     def __init__(self, in_channels: int, out_channels: int, base_filters: int, num_layers: int):
+        """Args:
+        in_channels: Number of input channels.
+        out_channels: Number of output channels.
+        base_filters: Number of filters in the first layer.
+        num_layers: Number of convolutional layers.
+        """
         super().__init__()
 
         layers = []
@@ -30,6 +36,7 @@ class SimpleCNN(nn.Module):
         self.model = nn.Sequential(*layers)
 
     def forward(self, x):
+        """Forward pass through the model."""
         return self.model(x)
 
 

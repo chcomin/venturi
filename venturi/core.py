@@ -747,8 +747,6 @@ class Experiment:
             
             return self.fit(overrides, extra_callbacks=[pruning_cb])  
 
-        #vcfg_optuna.study.storage = vcfg_optuna.study.storage.replace("///", f"///{self.run_path}/")
-
         optuna_config_sampler = OptunaConfigSampler(vcfg_space)
 
         # Create Optuna study
