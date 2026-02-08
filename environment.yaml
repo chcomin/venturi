@@ -3,7 +3,7 @@ name: venturi
 channels:
   - conda-forge
 dependencies:
-  - python>=3.13
+  - python=3.13
   - pytorch-gpu>=2.9.1
   - torchvision>=0.24.1
   - lightning>=2.6.0
@@ -15,5 +15,6 @@ dependencies:
   - tqdm>=4.67.1
   - PyYAML>=6.0.3
   - optuna>=4.7.0
+  - optuna-integration>=4.7.0
   - Pillow>=12.1.0
   - pip>=23.2.4

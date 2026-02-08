@@ -33,11 +33,11 @@ class SimpleCNN(nn.Module):
             layers.extend([conv_block(base_filters, base_filters)])
         layers.append(conv_block(base_filters, out_channels))
 
-        self.model = nn.Sequential(*layers)
+        self.layers = nn.Sequential(*layers)
 
     def forward(self, x):
         """Forward pass through the model."""
-        return self.model(x)
+        return self.layers(x)
 
 
 def get_model(vcfg: Config) -> nn.Module:

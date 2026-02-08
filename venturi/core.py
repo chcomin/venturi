@@ -123,7 +123,7 @@ class TrainingModule(pl.LightningModule):
         self.vcfg = vcfg
 
         get_model = instantiate(self.vcfg.model.setup, partial=True)
-        self.model = get_model(self.vcfg)
+        self.pt_model = get_model(self.vcfg)
 
         loss_fn = LossCollection(vcfg.losses)
         self.train_loss = loss_fn.clone(prefix="train/")
@@ -141,7 +141,7 @@ class TrainingModule(pl.LightningModule):
 
     def forward(self, x):
         """Forward pass through the model."""
-        return self.model(x)
+        return self.pt_model(x)
 
     def training_step(self, batch):
         """Performs a training step."""
@@ -610,6 +610,9 @@ class Experiment:
 
         self._stage = "fit"
 
+        gc.collect()
+        torch.cuda.empty_cache()
+
         if vcfg_overrides is not None:
             self.vcfg.update_from(vcfg_overrides)
 
@@ -670,6 +673,9 @@ class Experiment:
         """
 
         self._stage = "test"
+
+        gc.collect()
+        torch.cuda.empty_cache()
 
         if vcfg_overrides is not None:
             self.vcfg.update_from(vcfg_overrides)

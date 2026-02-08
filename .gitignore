@@ -8,3 +8,5 @@ ___*.py
 /build
 *.egg-info
 *.sqlite3
+*.ckpt
+*.txt
