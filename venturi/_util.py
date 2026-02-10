@@ -54,13 +54,21 @@ class LossCollection(nn.Module):
     dictionary with the individual loss values with the format {loss_name: loss_value}.
     """
 
-    def __init__(self, vcfg_loss: Config, return_logs: bool = True, prefix: str = ""):
+    def __init__(
+            self, 
+            vcfg_loss: Config, 
+            return_logs: bool = True, 
+            normalize_weights: bool = False,
+            prefix: str = ""
+            ):
         """Args:
         vcfg_loss: Configuration dictionary for the loss functions.
         return_logs: Whether to return individual loss values as logs.
+        normalize_weights: Whether to normalize the weights to sum to 1.0.
         prefix: Prefix to add to the loss names in the logs.
         """
         super().__init__()
+        
 
         # If there is a single loss without weight, set its weight to 1.0
         if len(vcfg_loss) == 1:
@@ -71,12 +79,18 @@ class LossCollection(nn.Module):
         self.loss_map = nn.ModuleDict()
         self.vcfg_loss = vcfg_loss
         self.return_logs = return_logs
+        self.normalize_weights = normalize_weights
         self.weights = {}
 
         # Register components
         for name, config in vcfg_loss.items():
             self.loss_map[f"{prefix}{name}"] = instantiate(config["instance"])
             self.weights[f"{prefix}{name}"] = config["loss_weight"]
+
+        if normalize_weights:
+            total_weight = sum(self.weights.values())
+            for key in self.weights:
+                self.weights[key] /= total_weight
 
     def forward(self, input, target):
         """Passes the input and target to every child loss.
@@ -102,7 +116,8 @@ class LossCollection(nn.Module):
 
     def clone(self, prefix: str = "") -> "LossCollection":
         """Make a copy of the class."""
-        return self.__class__(deepcopy(self.vcfg_loss), self.return_logs, prefix)
+        return self.__class__(
+            deepcopy(self.vcfg_loss), self.return_logs, self.normalize_weights, prefix)
 
 class OptunaConfigSampler:
     """Parses a hierarchical search space configuration and samples values 

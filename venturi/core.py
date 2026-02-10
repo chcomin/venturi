@@ -4,8 +4,8 @@ import gc
 import importlib
 import os
 import shutil
-from pathlib import Path
 import warnings
+from pathlib import Path
 
 import lightning.pytorch as pl
 import optuna
@@ -126,7 +126,8 @@ class TrainingModule(pl.LightningModule):
         get_model = instantiate(self.vcfg.model.setup, partial=True)
         self.pt_model = get_model(self.vcfg)
 
-        loss_fn = LossCollection(vcfg.losses)
+        normalize_weights = vcfg.losses.get("normalize_weights", False) 
+        loss_fn = LossCollection(vcfg.losses, normalize_weights=normalize_weights)
         self.train_loss = loss_fn.clone(prefix="train/")
         self.val_loss = loss_fn.clone(prefix="val/")
 
