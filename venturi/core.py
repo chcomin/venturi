@@ -5,6 +5,7 @@ import importlib
 import os
 import shutil
 from pathlib import Path
+import warnings
 
 import lightning.pytorch as pl
 import optuna
@@ -738,6 +739,10 @@ class Experiment:
                 raise ValueError("No Optuna study configuration provided.")
             vcfg_optuna = self.vcfg.optuna
 
+        if getattr(vcfg_optuna, "silence_optuna", False):
+            warnings.filterwarnings("ignore", category=optuna.exceptions.ExperimentalWarning)
+            optuna.logging.set_verbosity(optuna.logging.WARNING)
+
         # Optuna objective function. This function is here to not pollute the class namespace.
         # This is not safe for pickling in case of distributed optimization with spawned processes,
         # but it is unlikely that .optimize() will be called in spawned processes.
@@ -747,6 +752,7 @@ class Experiment:
             
             # Sample hyperparameters
             overrides = optuna_config_sampler.sample(trial, include_category=False)
+            trial.set_user_attr("vcfg_overrides", overrides.to_dict())
 
             pruning_cb = PyTorchLightningPruningCallback(
                 trial, monitor=self.vcfg.training.validation_metric)

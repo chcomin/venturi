@@ -67,3 +67,16 @@ if __name__ == "__main__":
     study = experiment.optimize(vcfg_space)
 
     print("Best parameters:", study.best_params)
+
+    # Get the best hyperparameters
+    vcfg_overrides = Config(study.best_trial.user_attrs["vcfg_overrides"])
+    # Add checkpoint logging for the .test call
+    vcfg_overrides.update_from({
+        "logging": {
+            "log_checkpoints": True
+        }
+    })
+    # Train using the best hyperparameters
+    experiment.fit(vcfg_overrides=vcfg_overrides)
+    # Test on the best model
+    results = experiment.test()

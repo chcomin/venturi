@@ -128,7 +128,6 @@ training:
   optimizer:
     _target_: "torch.optim.SGD"
     lr: 0.01
-    momentum: 0.9
     weight_decay: 0.0001
   lr_scheduler:
     # Scheduler class and respective parameters
@@ -198,3 +197,39 @@ training:
   # than 100 metrics wil be logged. It is recommended to use other tools like nvtop and btop to
   # monitor GPU and CPU usage.
   monitor_device_stats: false
+
+# The following options are only relevant when using the method Experiment.optimize() for
+# hyperparameter search with Optuna. You can ignore this section if you are not doing hyperparameter
+# search
+optuna:
+  # Suppress Optuna information about trials
+  silence_optuna: false
+  study:
+    # Name of the database where the Optuna study results are stored. This allows resuming
+    # an interrupted hyperparameter search. Note that the file is not saved inside run_path
+    # because HPO usually involves many runs. The file is stored in the current working directory
+    # Set to null to use an in-memory storage.
+    storage: "sqlite:///hpo_data.sqlite3"
+    study_name: "example"
+    direction: "minimize"
+    # Load previous results if the study already exists in the database. 
+    load_if_exists: true
+    # Set Optuna sampler
+    sampler:
+      _target_: optuna.samplers.TPESampler
+      multivariate: true
+      warn_independent_sampling: false
+      n_startup_trials: 3
+      n_ei_candidates: 24
+      seed: 0
+    # Set Optuna pruner that stops unpromising trials early
+    pruner:
+      _target_: optuna.pruners.HyperbandPruner
+      min_resource: 2
+      max_resource: 10
+      reduction_factor: 3
+
+  # Parameters for study.optimize()
+  study_optimize:
+    n_trials: 10
+    show_progress_bar: true

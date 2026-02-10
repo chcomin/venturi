@@ -30,5 +30,6 @@ def get_dataset(vcfg):
 
     return {
         "train_ds": SimpleDataset(vcfg.dataset.num_classes), 
-        "val_ds": SimpleDataset(vcfg.dataset.num_classes)
+        "val_ds": SimpleDataset(vcfg.dataset.num_classes),
+        "test_ds": SimpleDataset(vcfg.dataset.num_classes)
         }

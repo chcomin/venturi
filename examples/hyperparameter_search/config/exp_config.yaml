@@ -9,6 +9,13 @@ dataset:
   setup:
     _target_: scripts.dataset.get_dataset
   num_classes: 10
+  test_dataloader:
+    _target_: torch.utils.data.DataLoader
+    batch_size: 8
+    shuffle: false
+    num_workers: 0
+    persistent_workers: false
+    pin_memory: true
 
 model:
   setup:
@@ -33,8 +40,9 @@ training:
   maximize_validation_metric: false
 
 optuna:
+  silence_optuna: false
   study:
-    storage: "sqlite:///my_experiment_db.sqlite3"
+    storage: "sqlite:///hpo_data.sqlite3"
     study_name: "example"
     direction: "minimize"
     load_if_exists: true
@@ -42,7 +50,7 @@ optuna:
       _target_: optuna.samplers.TPESampler
       multivariate: true
       warn_independent_sampling: false
-      n_startup_trials: 10
+      n_startup_trials: 3
       n_ei_candidates: 24
       seed: 0
     pruner:
@@ -52,6 +60,6 @@ optuna:
       reduction_factor: 3
 
   study_optimize:
-    n_trials: 100
+    n_trials: 10
     show_progress_bar: true
 
