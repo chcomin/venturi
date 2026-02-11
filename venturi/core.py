@@ -135,8 +135,12 @@ class TrainingModule(pl.LightningModule):
         if "metrics" in self.vcfg:
             get_metrics = instantiate(self.vcfg.metrics.setup, partial=True)
             metrics = get_metrics(self.vcfg)
-            self.val_metrics = metrics.clone(prefix="val/")
-            self.test_metrics = metrics.clone(prefix="test/")
+            self.val_metrics = metrics.clone()
+            self.test_metrics = metrics.clone()
+            if "preprocessing" in self.vcfg.metrics:
+                self.preprocessing = instantiate(self.vcfg.metrics.preprocessing, partial=True)
+            else:
+                self.preprocessing = None
         else:
             self.val_metrics = None
             self.test_metrics = None
@@ -171,21 +175,38 @@ class TrainingModule(pl.LightningModule):
             self.log_dict(loss_logs, on_step=False, on_epoch=True, prog_bar=False, batch_size=bs)
 
         if self.val_metrics is not None:
-            output = self.val_metrics(logits, y)
-            self.log_dict(output, on_step=False, on_epoch=True, prog_bar=False, batch_size=bs)
+            if self.preprocessing is not None:
+                logits, y = self.preprocessing(logits, y) 
+            self.val_metrics.update(logits, y)
 
         # Return logits for plotting callbacks
         return {"loss": loss, "logits": logits.detach()}
+    
+    def on_validation_epoch_end(self) -> None:
+        """Log validation metrics and reset metric state."""
+        if self.val_metrics is not None:
+            output = self.val_metrics.compute()
+            output = {f"val/{k}": v for k, v in output.items()}  # Prefix keys with "val/"
+            self.log_dict(output, prog_bar=False)
+            self.val_metrics.reset()
 
     def test_step(self, batch):
         """Performs a test step."""
         x, y = batch
         logits = self(x)
 
-        bs = x.size(0)
         if self.test_metrics is not None:
-            output = self.test_metrics(logits, y)
-            self.log_dict(output, on_step=False, on_epoch=True, prog_bar=False, batch_size=bs)
+            if self.preprocessing is not None:
+                logits, y = self.preprocessing(logits, y)
+            self.test_metrics.update(logits, y)
+
+    def on_test_epoch_end(self) -> None:
+        """Log test metrics and reset metric state."""
+        if self.test_metrics is not None:
+            output = self.test_metrics.compute()
+            output = {f"test/{k}": v for k, v in output.items()}
+            self.log_dict(output, prog_bar=False)
+            self.test_metrics.reset()
 
     def configure_optimizers(self):
         """Configures optimizers and learning rate schedulers based on the config file."""

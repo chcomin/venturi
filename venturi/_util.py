@@ -20,6 +20,7 @@ from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.utilities import rank_zero_only
 from PIL import Image
 from torch import nn
+from torchmetrics import Metric, MetricCollection
 
 from venturi.config import Config, instantiate
 
@@ -118,6 +119,73 @@ class LossCollection(nn.Module):
         """Make a copy of the class."""
         return self.__class__(
             deepcopy(self.vcfg_loss), self.return_logs, self.normalize_weights, prefix)
+
+
+class MetricCollectionWrapper(nn.Module):
+    """A base class that wraps a MetricCollection and allows for custom 
+    preprocessing of inputs before they reach the metrics.
+    """
+    def __init__(
+        self, 
+        metrics: MetricCollection | dict[str, Metric], 
+        prefix: str | None = None
+    ):
+        super().__init__()
+        if isinstance(metrics, dict):
+            metrics = MetricCollection(metrics)
+        
+        if prefix:
+            metrics = metrics.clone(prefix=prefix)
+            
+        self.collection = metrics
+
+    def preprocess(self, logits: torch.Tensor, target: torch.Tensor):
+        """Override this method in subclasses to preprocess the input data.
+        
+        Args:
+            logits: Output from the network.
+            target: Ground truth data.
+
+        Returns:
+            A tuple (preds, new_target) after preprocessing.
+        """
+        return logits, target
+
+    def update(self, logits: torch.Tensor, target: torch.Tensor):
+        """Preprocesses data and updates the internal collection."""
+        preds, target = self.preprocess(logits, target)
+        self.collection.update(preds, target)
+
+    def forward(self, logits: torch.Tensor, target: torch.Tensor):
+        self.update(logits, target)
+
+    def compute(self) -> dict[str, torch.Tensor]:
+        return self.collection.compute()
+
+    def reset(self):
+        self.collection.reset()
+
+    def clone(self, prefix: str | None = None):
+        """Creates a copy of this class."""
+        new_collection = self.collection.clone(prefix=prefix)
+        
+        new_instance = self.__class__(metrics=new_collection)
+        return new_instance
+
+    def __getitem__(self, key: str) -> Metric:
+        return self.collection[key]
+
+    def items(self):
+        return self.collection.items()
+    
+    def keys(self):
+        return self.collection.keys()
+        
+    def values(self):
+        return self.collection.values()
+
+    def __len__(self):
+        return len(self.collection)
 
 class OptunaConfigSampler:
     """Parses a hierarchical search space configuration and samples values 

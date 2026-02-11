@@ -120,8 +120,13 @@ metrics:
   # The function receives as input this yaml file. See the examples in the venturi repository.
   # The metrics are not as flexible as the losses (being able to define each of them in this
   # yaml file) because metrics are rarely hyperparameters to tune. 
+  # Venturi also provides a MetricCollectionWrapper class when custom logic is required for
+  # metric computation. 
   setup:
     _target_: <dot.path.to.function>  # Change this!!
+  # You can also define a preprocessing function with signature preprocessing(logits, targets)
+  # that applies any transformation to the data before passing to the metrics.
+  #preprocessing: <dot.path.to.function>
 
 training:
   # Optimizer class and respective parameters
