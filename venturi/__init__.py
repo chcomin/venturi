@@ -1,8 +1,8 @@
 from typing import Any
 
-from venturi._util import MetricCollectionWrapper
 from venturi.config import Config, instantiate
 from venturi.core import DataModule, Experiment, TrainingModule
+from venturi.util import MetricCollectionWrapper
 
 __version__ = "0.9.3"
 

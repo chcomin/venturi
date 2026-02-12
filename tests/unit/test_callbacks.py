@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 import torch
 
-from venturi._util import (
+from venturi.util import (
     ImageSaveCallback,
     PlottingCallback,
     TrainingTimeLoggerCallback,

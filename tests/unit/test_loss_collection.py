@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 
-from venturi._util import LossCollection
+from venturi.util import LossCollection
 from venturi.config import Config
 
 

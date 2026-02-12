@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from venturi._util import (
+from venturi.util import (
     generate_name_from_config,
     get_next_name,
     is_rank_zero,
@@ -141,5 +141,5 @@ class TestDeleteWandbRun:
         """Delete run via API (mock)"""
         # This would require mocking the wandb API
         # For now, we'll just ensure the function exists and is callable
-        from venturi._util import delete_wandb_run
+        from venturi.util import delete_wandb_run
         assert callable(delete_wandb_run)

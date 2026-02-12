@@ -15,7 +15,8 @@ from lightning.pytorch.loggers import CSVLogger, WandbLogger
 from lightning.pytorch.profilers import PyTorchProfiler
 from optuna.integration import PyTorchLightningPruningCallback
 
-from venturi._util import (
+from venturi.config import Config, instantiate
+from venturi.util import (
     ImageSaveCallback,  # For saving validation images
     LossCollection,  # For handling multiple losses
     OptunaConfigSampler,  # For Optuna hyperparameter sampling
@@ -28,7 +29,6 @@ from venturi._util import (
     patch_lightning,
     silence_lightning,
 )
-from venturi.config import Config, instantiate
 
 if importlib.util.find_spec("wandb") is None:
     _has_wandb = False
@@ -65,7 +65,9 @@ class DataModule(pl.LightningDataModule):
             os.environ["WANDB_SILENT"] = "True"
 
         # dataloader generator
-        self.generator = torch.Generator().manual_seed(self.vcfg.seed)
+        self.generator = torch.Generator()
+        if self.vcfg.seed is not None:
+            self.generator.manual_seed(self.vcfg.seed)
 
         # Call the function indicated in self.vcfg.dataset.setup, passing vcfg.
         get_dataset = instantiate(self.vcfg.dataset.setup, partial=True)
@@ -793,7 +795,8 @@ class Experiment:
         return study  
 
     def _set_seed(self):
-        pl.seed_everything(self.vcfg.seed, workers=True, verbose=False)
+        if self.vcfg.seed is not None:
+            pl.seed_everything(self.vcfg.seed, workers=True, verbose=False)
 
     def _check_vcfg(self, vcfg: Config):
         """Do some checks on vcfg to avoid misconfigurations."""
