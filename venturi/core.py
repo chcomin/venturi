@@ -241,7 +241,7 @@ class TrainingModule(pl.LightningModule):
                 total_iters = self.trainer.max_epochs
             else:
                 total_iters = self._estimate_total_steps()
-            if "OneCycleLR" in vcfg_t.lr_scheduler.instance:
+            if "OneCycleLR" in vcfg_t.lr_scheduler.instance._target_:
                 # In OneCycleLR the parameter is named total_steps instead of total_iters
                 sched_args["total_steps"] = total_iters
             else:
@@ -523,6 +523,7 @@ class Experiment:
                     monitor=vcfg_t.validation_metric,
                     patience=vcfg_t.patience,
                     mode=mode,
+                    stopping_threshold=vcfg_t.stopping_threshold,
                     divergence_threshold=vcfg_t.divergence_threshold,
                 )
             )

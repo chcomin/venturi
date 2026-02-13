@@ -188,6 +188,8 @@ training:
   patience: null 
   # Whether to maximize or minimize the validation metric
   maximize_validation_metric: false
+  # If the validation metric gets better than this threshold, training stops
+  stopping_threshold: null
   # If the validation metric gets worse than this threshold, training stops
   divergence_threshold: null
   # Enable the profiler to analyze performance bottlenecks. The profiler waits for 1 step,
