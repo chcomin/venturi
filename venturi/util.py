@@ -2,6 +2,7 @@ import contextlib
 import logging
 import os
 import string
+import sys
 import time
 import warnings
 from copy import deepcopy
@@ -31,8 +32,8 @@ except ImportError:
 else:
     _has_wandb = True
 
-if os.environ.get("DISPLAY", "") == "":
-    # Use non-interactive Agg backend
+if os.environ.get("DISPLAY", "") == "" and "ipykernel" not in sys.modules:
+    # No display and not using a notebook. Use non-interactive Agg backend
     matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -790,3 +791,34 @@ def get_next_name(path: Path) -> Path:
         if not candidate.exists():
             return candidate
         counter += 1
+
+def setup_storage(storage_input: str | None) -> str | None:
+    """Parses an Optuna storage string (SQLite), creates the parent directory
+    if it doesn't exist, and returns the valid storage URL.
+
+    Args:
+        storage_input: A string like "sqlite:///data/db.sqlite3" or "data/db.sqlite3".
+    """
+
+    if storage_input is None:
+        return None
+    
+    prefix = "sqlite:///"
+    
+    # Check if the user passed a full URL or just a path
+    if storage_input.startswith(prefix):
+        # Strip the prefix to get the actual file path
+        file_path_str = storage_input[len(prefix):]
+    else:
+        file_path_str = storage_input
+    
+    # Convert to a Path object
+    db_path = Path(file_path_str)
+
+    if db_path.parent:
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        
+    if storage_input.startswith(prefix):
+        return storage_input
+    else:
+        return f"{prefix}{file_path_str}"

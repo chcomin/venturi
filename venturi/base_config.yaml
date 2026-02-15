@@ -138,7 +138,6 @@ training:
     # Scheduler class and respective parameters
     instance:
       _target_: "torch.optim.lr_scheduler.PolynomialLR"
-      power: 1.0
     # lr_scheduler_config dictionary to pass to LightningModule.configure_optimizers
     scheduler_config:
       interval: "step"

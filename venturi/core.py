@@ -27,6 +27,7 @@ from venturi.util import (
     get_next_name,
     is_rank_zero,
     patch_lightning,
+    setup_storage,
     silence_lightning,
 )
 
@@ -782,13 +783,21 @@ class Experiment:
             pruning_cb = PyTorchLightningPruningCallback(
                 trial, monitor=self.vcfg.training.validation_metric)
             
+            # Attach trial to self. Not pretty, but it allows accessing the trial from anywhere
+            # in the experiment.
+            self._trial = trial
+            
             return self.fit(overrides, extra_callbacks=[pruning_cb])  
 
         optuna_config_sampler = OptunaConfigSampler(vcfg_space)
 
         # Create Optuna study
+        vcfg_optuna.study.storage = setup_storage(vcfg_optuna.study.storage)
         vcfg_os = instantiate(vcfg_optuna.study)
         study = optuna.create_study(**vcfg_os)
+
+        study.set_user_attr("vcfg_space", vcfg_space.to_dict())
+        study.set_user_attr("vcfg_optuna", vcfg_optuna.to_dict())
         
         # Optimize, passing the experiment and search space to the objective function
         study.optimize(objective, **vcfg_optuna.study_optimize)
